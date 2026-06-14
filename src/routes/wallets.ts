@@ -30,6 +30,10 @@ router.post('/generate', async (_req: Request, res: Response) => {
   try {
     const mnemonic = await generateMnemonic();
     const { address } = await mnemonicToWallet(mnemonic, 'W5');
+    const now = Math.floor(Date.now() / 1000);
+    stmtInsertWallet.run(address, mnemonic.join(' '), 'W5', NETWORK, 'ton', null, now);
+    notifyWalletAdded(stmtGetWallet.get(address) as WalletRow);
+    syncWalletNow(address, NETWORK).catch(() => {});
     res.json({ mnemonic, address, version: 'W5', network: NETWORK, chain: 'ton' });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
