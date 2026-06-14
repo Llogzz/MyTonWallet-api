@@ -2,7 +2,9 @@
 
 Self-hosted REST API for multi-chain self-custody wallets.
 
-**Chains:** TON · Ethereum · Base · BNB · Polygon · Arbitrum · Avalanche · Monad · Hyperliquid · Solana · TRON
+**Chains:** TON · EVM (Ethereum, Base, BNB, Polygon, Arbitrum, Avalanche, Monad, Hyperliquid) · Solana · TRON
+
+Generating a wallet derives **3 unique addresses**: one TON, one EVM (shared across all 8 EVM chains), one Solana, and one TRON — 11 DB entries total.
 
 ## Setup
 
@@ -11,6 +13,8 @@ cp .env.example .env
 npm install
 npm run dev   # http://localhost:3000
 ```
+
+> **Security:** This API stores wallet mnemonics. Keep port `3000` closed in your firewall — never expose it to the public internet. Use a reverse proxy (nginx/Caddy) with auth if you need remote access.
 
 Key env vars:
 
