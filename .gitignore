@@ -1,0 +1,7 @@
+node_modules/
+dist/
+data/
+proxy.txt
+*.db
+*.db-shm
+*.db-wal

@@ -1,0 +1,1297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MyTonWallet API — Documentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ── Sidebar ─────────────────────────────────────── -->
+<aside id="sidebar">
+  <div class="sidebar-logo">
+    <h1>MyTonWallet API</h1>
+    <p>v4.10.7 · TON · EVM · Solana · TRON</p>
+  </div>
+  <input id="search-input" type="text" placeholder="Search endpoints…">
+  <nav>
+    <div class="nav-section">
+      <div class="nav-section-title">Getting Started</div>
+      <a class="nav-link" href="#overview">Overview</a>
+      <a class="nav-link" href="#quickstart">Quick Start</a>
+      <a class="nav-link" href="#config">Configuration</a>
+      <a class="nav-link" href="#proxy">Proxy Support</a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Wallets</div>
+      <a class="nav-link" href="#wallets">Wallet Management</a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">History</div>
+      <a class="nav-link" href="#transactions">Transactions</a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Balances</div>
+      <a class="nav-link" href="#tokens">Tokens</a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Operations</div>
+      <a class="nav-link" href="#send">Send</a>
+      <a class="nav-link" href="#staking">Staking</a>
+      <a class="nav-link" href="#swap">Swap</a>
+      <a class="nav-link" href="#webhooks">Webhooks</a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Tools</div>
+      <a class="nav-link" href="#portfolio">Portfolio</a>
+      <a class="nav-link" href="#telegram">Telegram</a>
+    </div>
+    <div class="nav-section">
+      <div class="nav-section-title">Misc</div>
+      <a class="nav-link" href="#health">Health</a>
+    </div>
+  </nav>
+</aside>
+
+<!-- ── Main ────────────────────────────────────────── -->
+<main id="main">
+
+  <!-- Hero -->
+  <div class="hero" id="overview">
+    <h1><span>MyTonWallet API</span></h1>
+    <p>Self-hosted REST API implementing the full MyTonWallet v4.10.7 feature set. Wallets, tokens, staking, swaps, multi-send, and real-time webhook notifications across 11 chains — all via HTTP.</p>
+    <div class="badges">
+      <span class="badge badge-blue">TON · Jettons</span>
+      <span class="badge badge-blue">EVM × 8 chains</span>
+      <span class="badge badge-orange">Solana · SPL</span>
+      <span class="badge badge-purple">TRON · TRC-20</span>
+      <span class="badge badge-green">WebSocket real-time</span>
+      <span class="badge badge-purple">SQLite + Cache</span>
+      <span class="badge badge-blue">Proxy Support</span>
+    </div>
+  </div>
+
+  <!-- Quick Start -->
+  <section class="section" id="quickstart">
+    <h2 class="section-title">Quick Start</h2>
+    <p class="section-desc">Up and running in under a minute.</p>
+    <div class="qs-steps">
+      <div class="qs-step">
+        <div class="qs-step-num">1</div>
+        <div class="qs-step-body">
+          <p>Clone and install</p>
+          <div class="code-wrap"><pre>git clone https://github.com/llogzz/MyTonWallet-api
+cd MyTonWallet-api
+npm install</pre></div>
+        </div>
+      </div>
+      <div class="qs-step">
+        <div class="qs-step-num">2</div>
+        <div class="qs-step-body">
+          <p>Edit <code>.env</code> if needed — all defaults work out of the box</p>
+          <div class="code-wrap"><pre># Optional: set your Toncenter API key for higher rate limits
+TONCENTER_API_KEY=your_key_here</pre></div>
+        </div>
+      </div>
+      <div class="qs-step">
+        <div class="qs-step-num">3</div>
+        <div class="qs-step-body">
+          <p>Start the server</p>
+          <div class="code-wrap"><pre>npm run dev</pre></div>
+        </div>
+      </div>
+      <div class="qs-step">
+        <div class="qs-step-num">4</div>
+        <div class="qs-step-body">
+          <p>Import your first wallet</p>
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/import \
+  -H 'Content-Type: application/json' \
+  -d '{"mnemonic": "word1 word2 ... word24", "chain": "ton"}'</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Config -->
+  <section class="section" id="config">
+    <h2 class="section-title">Configuration</h2>
+    <p class="section-desc">Edit <code>.env</code> in the project root. All variables have sensible defaults — the API works without any changes.</p>
+    <table class="config-table">
+      <thead><tr><th>Variable</th><th>Default</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>PORT</td><td>3000</td><td>HTTP server port</td></tr>
+        <tr><td>TONCENTER_MAINNET_URL</td><td>https://toncenter.mytonwallet.org</td><td>Toncenter mainnet API base URL</td></tr>
+        <tr><td>TONCENTER_TESTNET_URL</td><td>https://toncenter-testnet.mytonwallet.org</td><td>Toncenter testnet API base URL</td></tr>
+        <tr><td>TONCENTER_API_KEY</td><td><em>empty</em></td><td>Optional Toncenter API key for higher rate limits</td></tr>
+        <tr><td>NETWORK</td><td>mainnet</td><td>Default network: <code>mainnet</code> or <code>testnet</code></td></tr>
+        <tr><td>DB_PATH</td><td>./data/wallet.db</td><td>SQLite database file path (auto-created)</td></tr>
+        <tr><td>MONITOR_FALLBACK_INTERVAL_MS</td><td>30000</td><td>HTTP poll interval (ms) when WebSocket is disconnected</td></tr>
+        <tr><td>WS_RECONNECT_MAX_MS</td><td>30000</td><td>Maximum WebSocket reconnect backoff delay (ms)</td></tr>
+        <tr><td>EVM_API_URL</td><td>https://evmapi.mytonwallet.org</td><td>EVM balance and history backend (all 8 EVM chains)</td></tr>
+        <tr><td>SOLANA_RPC_URL</td><td>https://api.mainnet-beta.solana.com</td><td>Solana JSON-RPC endpoint</td></tr>
+        <tr><td>TRON_API_URL</td><td>https://api.trongrid.io</td><td>TRON REST API base URL</td></tr>
+        <tr><td>TRON_API_KEY</td><td><em>empty</em></td><td>Optional TronGrid API key for higher rate limits</td></tr>
+        <tr><td>TELEGRAM_BOT_TOKEN</td><td><em>empty</em></td><td>Bot token from @BotFather — enables Telegram tx notifications</td></tr>
+        <tr><td>TELEGRAM_CHAT_ID</td><td><em>empty</em></td><td>Your Telegram chat ID — find it via @userinfobot or @Get_myidrobot</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Proxy -->
+  <section class="section" id="proxy">
+    <h2 class="section-title">Proxy Support</h2>
+    <p class="section-desc">Add proxies to <code>proxy.txt</code> (auto-created on startup). Each WebSocket connection picks a random proxy. Failed proxies are retried after 5 minutes. Changes apply instantly — no restart needed.</p>
+    <div class="code-wrap"><pre># Plain host:port
+34.44.49.215:80
+
+# Authenticated: host:port:user:pass
+34.44.49.215:80:myuser:mypassword
+
+# URL with credentials
+myuser:mypassword@34.44.49.215:80
+
+# With explicit scheme
+socks5://myuser:mypassword@34.44.49.215:80
+http://myuser:mypassword@34.44.49.215:80</pre></div>
+    <div class="note"><strong>Tip:</strong> All formats are accepted and auto-detected. Lines starting with <code>#</code> are ignored.</div>
+  </section>
+
+  <!-- Wallets -->
+  <section class="section" id="wallets">
+    <h2 class="section-title">Wallets</h2>
+    <p class="section-desc">Generate, import, list, inspect, and delete wallets. Supports TON, EVM (8 chains), Solana, and TRON.</p>
+
+    <!-- Generate -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/wallets/generate</span>
+        <span class="endpoint-summary">Generate a new TON wallet</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px;">Creates a new 24-word TON mnemonic and W5 wallet address. The mnemonic is returned but not saved — call <code>/wallets/import</code> to persist it.</p>
+        <div class="tabs" data-group="gen">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/generate</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "mnemonic": ["abandon", "ability", "able", "..."],
+  "address": "UQBvW8Y0FPrFgNjpFuZfHBf...",
+  "version": "W5",
+  "network": "mainnet"
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Import -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/wallets/import</span>
+        <span class="endpoint-summary">Import wallet from mnemonic</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px;">Import a wallet by mnemonic phrase. Supports TON 24-word, BIP39 12/24-word. The wallet is saved to SQLite and subscribed for real-time monitoring.</p>
+        <h2 class="sub">Body</h2>
+        <table class="params-table">
+          <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="param-name">mnemonic</td><td class="param-type">string | string[]</td><td>Seed phrase (space-separated or array) <span class="badge-req">required</span></td></tr>
+            <tr><td class="param-name">chain</td><td class="param-type">string</td><td>Chain: <code>ton</code>, <code>ethereum</code>, <code>base</code>, <code>bnb</code>, <code>polygon</code>, <code>arbitrum</code>, <code>avalanche</code>, <code>monad</code>, <code>hyperliquid</code>, <code>solana</code>, <code>tron</code>. Default: <code>ton</code></td></tr>
+            <tr><td class="param-name">version</td><td class="param-type">string</td><td>TON only: <code>W5</code>, <code>v4R2</code>, <code>v3R2</code>. Default: <code>W5</code></td></tr>
+            <tr><td class="param-name">label</td><td class="param-type">string</td><td>Optional human-readable label</td></tr>
+            <tr><td class="param-name">network</td><td class="param-type">string</td><td>TON only: <code>mainnet</code> or <code>testnet</code>. Default: env <code>NETWORK</code></td></tr>
+          </tbody>
+        </table>
+        <div class="tabs" data-group="imp">
+          <div class="tab active" data-tab="ton">TON</div>
+          <div class="tab" data-tab="evm">EVM</div>
+          <div class="tab" data-tab="solana">Solana</div>
+          <div class="tab" data-tab="tron">TRON</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="ton">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/import \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "mnemonic": "word1 word2 ... word24",
+    "chain": "ton",
+    "version": "W5"
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="evm">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/import \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "mnemonic": "word1 word2 ... word12",
+    "chain": "ethereum"
+  }'</pre></div>
+          <div class="note" style="margin-top:8px;">Supported EVM chains: <code>ethereum</code> <code>base</code> <code>bnb</code> <code>polygon</code> <code>arbitrum</code> <code>avalanche</code> <code>monad</code> <code>hyperliquid</code></div>
+        </div>
+        <div class="tab-content" data-tab="solana">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/import \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "mnemonic": "word1 word2 ... word12",
+    "chain": "solana"
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="tron">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/import \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "mnemonic": "word1 word2 ... word12",
+    "chain": "tron"
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>// TON
+{ "address": "UQBvW8Y0...", "version": "W5", "network": "mainnet", "chain": "ton", "label": null }
+
+// EVM
+{ "address": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "chain": "ethereum", "label": null }
+
+// Solana
+{ "address": "oeYf6KtL...", "chain": "solana", "label": null }
+
+// TRON
+{ "address": "TYsbW2...", "chain": "tron", "label": null }</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- List -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/wallets</span>
+        <span class="endpoint-summary">List all wallets</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="list">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl http://localhost:3000/wallets</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>[
+  {
+    "address": "UQBvW8Y0...",
+    "version": "W5",
+    "network": "mainnet",
+    "chain": "ton",
+    "label": "Main wallet",
+    "created_at": 1700000000
+  },
+  {
+    "address": "0xf39Fd6e51a...",
+    "version": "W5",
+    "network": "mainnet",
+    "chain": "ethereum",
+    "label": null,
+    "created_at": 1700001000
+  }
+]</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Get wallet -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/wallets/:address</span>
+        <span class="endpoint-summary">Balance + token overview</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px;">Returns native balance and all token balances. Response format varies by chain.</p>
+        <div class="tabs" data-group="getwallet">
+          <div class="tab active" data-tab="ton">TON</div>
+          <div class="tab" data-tab="evm">EVM</div>
+          <div class="tab" data-tab="tron">TRON</div>
+        </div>
+        <div class="tab-content active" data-tab="ton">
+          <div class="code-wrap"><pre>curl http://localhost:3000/wallets/UQBvW8Y0...</pre></div>
+          <div class="code-wrap" style="margin-top:4px;"><pre>{
+  "address": "UQBvW8Y0...",
+  "network": "mainnet",
+  "version": "W5",
+  "chain": "ton",
+  "ton_balance_raw": "5000000000",
+  "ton_balance": "5.0",
+  "status": "active",
+  "tokens": [
+    {
+      "jetton_address": "EQCxE6mUtQ...",
+      "symbol": "USDT",
+      "decimals": 6,
+      "balance_raw": "10000000",
+      "balance": "10.0"
+    }
+  ]
+}</pre></div>
+        </div>
+        <div class="tab-content" data-tab="evm">
+          <div class="code-wrap"><pre>curl http://localhost:3000/wallets/0xf39Fd6e51a...</pre></div>
+          <div class="code-wrap" style="margin-top:4px;"><pre>{
+  "address": "0xf39Fd6e51a...",
+  "chain": "ethereum",
+  "native_raw": "1000000000000000000",
+  "native": "1.0",
+  "tokens": [
+    {
+      "token_address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+      "symbol": "USDT",
+      "name": "Tether USD",
+      "decimals": 6,
+      "balance_raw": "5000000",
+      "balance": "5.0"
+    }
+  ]
+}</pre></div>
+        </div>
+        <div class="tab-content" data-tab="tron">
+          <div class="code-wrap"><pre>curl http://localhost:3000/wallets/TYsbW2...</pre></div>
+          <div class="code-wrap" style="margin-top:4px;"><pre>{
+  "address": "TYsbW2...",
+  "chain": "tron",
+  "native_raw": "1000000",
+  "native": "1.0",
+  "tokens": [
+    {
+      "token_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+      "symbol": "?",
+      "decimals": 6,
+      "balance_raw": "1099900000",
+      "balance": "1099.9"
+    }
+  ]
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete -->
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method DELETE">DELETE</span>
+        <span class="endpoint-path">/wallets/:address</span>
+        <span class="endpoint-summary">Remove wallet from DB</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="del">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X DELETE http://localhost:3000/wallets/UQBvW8Y0...</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{ "deleted": true, "address": "UQBvW8Y0..." }</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Transactions -->
+  <section class="section" id="transactions">
+    <h2 class="section-title">Transactions</h2>
+    <p class="section-desc">Query transaction history. Includes TON, Jetton, staking, and swap actions (TON); native and token transfers (EVM / Solana / TRON). TON wallets are monitored in real-time via WebSocket.</p>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/wallets/:address/transactions</span>
+        <span class="endpoint-summary">Full history with filters</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <h2 class="sub">Query params</h2>
+        <table class="params-table">
+          <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="param-name">since</td><td class="param-type">number</td><td>Unix timestamp — return transactions after this time</td></tr>
+            <tr><td class="param-name">until</td><td class="param-type">number</td><td>Unix timestamp — return transactions before this time</td></tr>
+            <tr><td class="param-name">direction</td><td class="param-type">string</td><td><code>in</code> or <code>out</code></td></tr>
+            <tr><td class="param-name">token</td><td class="param-type">string</td><td>Filter by token address or <code>TON</code> / <code>ETH</code> / <code>TRX</code></td></tr>
+            <tr><td class="param-name">limit</td><td class="param-type">number</td><td>Max results (default 50, max 200)</td></tr>
+          </tbody>
+        </table>
+        <div class="tabs" data-group="txs">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl "http://localhost:3000/wallets/UQBvW8Y0.../transactions?since=1700000000&direction=in&limit=20"</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>[
+  {
+    "tx_hash": "abc123ef...",
+    "direction": "in",
+    "amount": "10000000",
+    "token_symbol": "TON",
+    "token_addr": null,
+    "from_addr": "UQC...",
+    "to_addr": "UQBvW8Y0...",
+    "comment": "payment",
+    "timestamp": 1700001234
+  },
+  {
+    "tx_hash": "def456ab...",
+    "direction": "in",
+    "amount": "5000000",
+    "token_symbol": "USDT",
+    "token_addr": "EQCxE6mUtQ...",
+    "from_addr": "UQD...",
+    "to_addr": "UQBvW8Y0...",
+    "comment": null,
+    "timestamp": 1700001100
+  }
+]</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/wallets/:address/incoming</span>
+        <span class="endpoint-summary">Incoming transactions only</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="inc">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre># All incoming
+curl http://localhost:3000/wallets/UQBvW8Y0.../incoming
+
+# Since a Unix timestamp
+curl "http://localhost:3000/wallets/UQBvW8Y0.../incoming?since=1700000000"</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>[
+  {
+    "tx_hash": "abc123ef...",
+    "direction": "in",
+    "amount": "10000000",
+    "token_symbol": "TON",
+    "token_addr": null,
+    "from_addr": "UQC...",
+    "to_addr": "UQBvW8Y0...",
+    "comment": "hello",
+    "timestamp": 1700001234
+  }
+]</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tokens -->
+  <section class="section" id="tokens">
+    <h2 class="section-title">Tokens</h2>
+    <p class="section-desc">Query token balances, known token list, and USD prices. Works across all supported chains.</p>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/wallets/:address/tokens</span>
+        <span class="endpoint-summary">All token balances</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="toks">
+          <div class="tab active" data-tab="ton">TON (Jettons)</div>
+          <div class="tab" data-tab="evm">EVM (ERC-20)</div>
+          <div class="tab" data-tab="tron">TRON (TRC-20)</div>
+        </div>
+        <div class="tab-content active" data-tab="ton">
+          <div class="code-wrap"><pre>curl http://localhost:3000/wallets/UQBvW8Y0.../tokens</pre></div>
+          <div class="code-wrap" style="margin-top:4px;"><pre>[
+  {
+    "jetton_address": "EQCxE6mUtQJKFnGfaROTKOt1...",
+    "wallet_address": "EQD...",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "decimals": 6,
+    "balance_raw": "5000000",
+    "balance": "5.0"
+  }
+]</pre></div>
+        </div>
+        <div class="tab-content" data-tab="evm">
+          <div class="code-wrap"><pre>curl http://localhost:3000/wallets/0xf39Fd6e51a.../tokens</pre></div>
+          <div class="code-wrap" style="margin-top:4px;"><pre>[
+  {
+    "token_address": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "decimals": 6,
+    "balance_raw": "5000000",
+    "balance": "5.0"
+  }
+]</pre></div>
+        </div>
+        <div class="tab-content" data-tab="tron">
+          <div class="code-wrap"><pre>curl http://localhost:3000/wallets/TYsbW2.../tokens</pre></div>
+          <div class="code-wrap" style="margin-top:4px;"><pre>[
+  {
+    "token_address": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+    "symbol": "?",
+    "decimals": 6,
+    "balance_raw": "1099900000",
+    "balance": "1099.9"
+  }
+]</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/tokens/known</span>
+        <span class="endpoint-summary">Known TON token list (~504 tokens)</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="known">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl http://localhost:3000/tokens/known</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>[
+  {
+    "address": "EQCxE6mUtQJKFnGfaROTKOt1...",
+    "symbol": "USDT",
+    "name": "Tether USD",
+    "decimals": 6,
+    "image": "https://..."
+  },
+  ...
+]</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/tokens/prices</span>
+        <span class="endpoint-summary">USD prices by slug</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <h2 class="sub">Query params</h2>
+        <table class="params-table">
+          <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="param-name">slugs</td><td class="param-type">string</td><td>Comma-separated token slugs, e.g. <code>ton,usdt</code> <span class="badge-req">required</span></td></tr>
+          </tbody>
+        </table>
+        <div class="tabs" data-group="prices">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl "http://localhost:3000/tokens/prices?slugs=ton,usdt,not"</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "ton": 5.42,
+  "usdt": 1.00,
+  "not": 0.0082
+}</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Send -->
+  <section class="section" id="send">
+    <h2 class="section-title">Send</h2>
+    <p class="section-desc">Send tokens across all supported chains. Multi-send (TON) batches up to 255 recipients in a single transaction.</p>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/wallets/:address/send</span>
+        <span class="endpoint-summary">Send native or token</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <h2 class="sub">Body</h2>
+        <table class="params-table">
+          <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="param-name">to</td><td class="param-type">string</td><td>Recipient address <span class="badge-req">required</span></td></tr>
+            <tr><td class="param-name">amount</td><td class="param-type">string</td><td>Amount in smallest units (nanotons, wei, lamports, sun) <span class="badge-req">required</span></td></tr>
+            <tr><td class="param-name">token</td><td class="param-type">string</td><td>Token/contract address — omit for native asset</td></tr>
+            <tr><td class="param-name">comment</td><td class="param-type">string</td><td>TON only: text comment</td></tr>
+            <tr><td class="param-name">mnemonic</td><td class="param-type">string | string[]</td><td>Seed phrase (uses saved mnemonic if omitted)</td></tr>
+          </tbody>
+        </table>
+        <div class="tabs" data-group="send">
+          <div class="tab active" data-tab="ton">TON</div>
+          <div class="tab" data-tab="jetton">Jetton</div>
+          <div class="tab" data-tab="evm">EVM</div>
+          <div class="tab" data-tab="tron">TRON TRC-20</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="ton">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/UQBvW8Y0.../send \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "to": "UQC...",
+    "amount": "1000000000",
+    "comment": "hello"
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="jetton">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/UQBvW8Y0.../send \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "to": "UQC...",
+    "amount": "5000000",
+    "token": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs"
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="evm">
+          <div class="code-wrap"><pre># Send ETH (native)
+curl -X POST http://localhost:3000/wallets/0xf39Fd6e51a.../send \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "to": "0xAbCd...",
+    "amount": "1000000000000000000"
+  }'
+
+# Send ERC-20 USDT
+curl -X POST http://localhost:3000/wallets/0xf39Fd6e51a.../send \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "to": "0xAbCd...",
+    "amount": "5000000",
+    "token": "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="tron">
+          <div class="code-wrap"><pre># Send USDT TRC-20
+curl -X POST http://localhost:3000/wallets/TYsbW2.../send \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "to": "TXyz...",
+    "amount": "1000000",
+    "token": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t"
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{ "ok": true, "tx_hash": "abc123ef..." }</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/wallets/:address/send/estimate</span>
+        <span class="endpoint-summary">Fee estimate (TON)</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="est">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/UQBvW8Y0.../send/estimate \
+  -H 'Content-Type: application/json' \
+  -d '{ "to": "UQC...", "amount": "1000000000" }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "estimated_fee_ton": "0.005",
+  "estimated_fee_nanoton": "5000000"
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/wallets/:address/send/multi</span>
+        <span class="endpoint-summary">Multi-send up to 255 recipients (TON)</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="multi">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/UQBvW8Y0.../send/multi \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "recipients": [
+      { "to": "UQB...", "amount": "500000000", "comment": "tx 1" },
+      { "to": "UQC...", "amount": "250000000" },
+      { "to": "UQD...", "amount": "250000000", "comment": "tx 3" }
+    ]
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "ok": true,
+  "recipients_count": 3,
+  "message": "Multi-send to 3 recipients submitted"
+}</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Staking -->
+  <section class="section" id="staking">
+    <h2 class="section-title">Staking</h2>
+    <p class="section-desc">Liquid TON staking via the MyTonWallet pool.</p>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/wallets/:address/staking</span>
+        <span class="endpoint-summary">Staking position</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="stakget">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl http://localhost:3000/wallets/UQBvW8Y0.../staking</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "staked": "10000000000",
+  "pending_deposit": "0",
+  "pending_withdraw": "0",
+  "ready_withdraw": "0"
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/wallets/:address/staking/stake</span>
+        <span class="endpoint-summary">Stake TON</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="stake">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/UQBvW8Y0.../staking/stake \
+  -H 'Content-Type: application/json' \
+  -d '{ "amount": "10000000000" }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{ "ok": true, "tx_hash": "abc123ef..." }</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/wallets/:address/staking/unstake</span>
+        <span class="endpoint-summary">Unstake TON</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="unstake">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/UQBvW8Y0.../staking/unstake \
+  -H 'Content-Type: application/json' \
+  -d '{ "amount": "10000000000" }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{ "ok": true, "tx_hash": "abc123ef..." }</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/staking/common</span>
+        <span class="endpoint-summary">Pool APY and stats</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="stakcom">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl http://localhost:3000/staking/common</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "apy": 4.12,
+  "minStake": "10000000000",
+  "poolAddress": "EQD..."
+}</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Swap -->
+  <section class="section" id="swap">
+    <h2 class="section-title">Swap</h2>
+    <p class="section-desc">Token swaps across all chains. TON/Jettons via MyTonWallet DEX · EVM via Paraswap · Solana via Jupiter · TRON via SunSwap. All without API keys.</p>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/swap/assets</span>
+        <span class="endpoint-summary">Available swap assets</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="swasset">
+          <div class="tab active" data-tab="curl">Request</div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl http://localhost:3000/swap/assets</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/swap/pairs</span>
+        <span class="endpoint-summary">Available pairs for an asset</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <h2 class="sub">Query params</h2>
+        <table class="params-table">
+          <thead><tr><th>Param</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="param-name">asset</td><td class="param-type">string</td><td>Asset slug, e.g. <code>ton</code> <span class="badge-req">required</span></td></tr>
+          </tbody>
+        </table>
+        <div class="tabs" data-group="swpairs">
+          <div class="tab active" data-tab="curl">Request</div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl "http://localhost:3000/swap/pairs?asset=ton"</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/swap/estimate</span>
+        <span class="endpoint-summary">Swap price estimate</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="swest">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/swap/estimate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "from": "ton",
+    "to": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+    "fromAmount": "1000000000"
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "fromAmount": "1000000000",
+  "toAmount": "5234120",
+  "swapFee": "10000000",
+  "impact": "0.12"
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/swap/build</span>
+        <span class="endpoint-summary">Build swap transaction (unsigned)</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px;">Returns raw TON messages ready to be signed and sent. Use <code>/wallets/:address/swap</code> to build and execute in one call.</p>
+        <h2 class="sub">Body</h2>
+        <table class="params-table">
+          <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="param-name">from</td><td class="param-type">string</td><td>Source asset slug or Jetton address <span class="badge-req">required</span></td></tr>
+            <tr><td class="param-name">to</td><td class="param-type">string</td><td>Target asset slug or Jetton address <span class="badge-req">required</span></td></tr>
+            <tr><td class="param-name">amount</td><td class="param-type">string</td><td>Amount in base units <span class="badge-req">required</span></td></tr>
+            <tr><td class="param-name">walletAddress</td><td class="param-type">string</td><td>Sender TON address <span class="badge-req">required</span></td></tr>
+            <tr><td class="param-name">slippage</td><td class="param-type">number</td><td>Max slippage percent. Default: <code>0.5</code></td></tr>
+          </tbody>
+        </table>
+        <div class="tabs" data-group="swbuild">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/swap/build \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "from": "ton",
+    "to": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+    "amount": "1000000000",
+    "walletAddress": "UQBvW8Y0...",
+    "slippage": 0.5
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "messages": [
+    {
+      "toAddress": "EQD...",
+      "amount": "1010000000",
+      "payload": "te6cc..."
+    }
+  ]
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/wallets/:address/swap</span>
+        <span class="endpoint-summary">Build + execute swap (all chains)</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <p style="color:var(--text-muted);font-size:12px;margin-top:8px;">Builds and executes a swap in one call using the wallet's saved mnemonic. Body fields differ by chain.</p>
+        <div class="tabs" data-group="swexec">
+          <div class="tab active" data-tab="ton">TON</div>
+          <div class="tab" data-tab="evm">EVM</div>
+          <div class="tab" data-tab="solana">Solana</div>
+          <div class="tab" data-tab="tron">TRON</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="ton">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/UQBvW8Y0.../swap \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "from": "ton",
+    "to": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+    "amount": "1000000000",
+    "slippage": 0.5
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="evm">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/0xf39Fd6.../swap \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "fromToken": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+    "toToken": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    "amount": "1000000000000000000",
+    "srcDecimals": 18,
+    "destDecimals": 6,
+    "slippage": 0.5
+  }'</pre></div>
+          <div class="note" style="margin-top:6px;"><strong>EVM native token:</strong> use <code>0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE</code>. Supported chains: ethereum, base, bnb, polygon, arbitrum, avalanche. ERC-20 inputs are approved automatically — the first swap of a token sends an <code>approve</code> tx before the swap.</div>
+        </div>
+        <div class="tab-content" data-tab="solana">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/oeYf6KtL.../swap \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "fromToken": "So11111111111111111111111111111111111111112",
+    "toToken": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "amount": "1000000000",
+    "slippageBps": 50
+  }'</pre></div>
+          <div class="note" style="margin-top:6px;"><strong>SOL native mint:</strong> <code>So11111111111111111111111111111111111111112</code>. Amount in lamports.</div>
+        </div>
+        <div class="tab-content" data-tab="tron">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/TYsbW2.../swap \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "fromToken": "TRX",
+    "toToken": "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t",
+    "amount": "1000000",
+    "slippage": 1
+  }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>// TON
+{ "ok": true, "tx_hash": "abc123ef...", "messages_count": 1 }
+
+// EVM / Solana / TRON — est_received is the quoted output in base units
+{ "ok": true, "tx_hash": "0xabc123...", "est_received": "5234120" }</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Webhooks -->
+  <section class="section" id="webhooks">
+    <h2 class="section-title">Webhooks</h2>
+    <p class="section-desc">Register URLs to receive real-time HTTP callbacks when new transactions arrive. Optionally sign payloads with HMAC-SHA256.</p>
+
+    <div class="note">
+      <strong>Payload format:</strong> <code>POST</code> to your URL with <code>Content-Type: application/json</code>. If <code>secret</code> is set, includes <code>X-Signature: sha256=&lt;hex&gt;</code> header.
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method POST">POST</span>
+        <span class="endpoint-path">/wallets/:address/webhooks</span>
+        <span class="endpoint-summary">Register webhook URL</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <h2 class="sub">Body</h2>
+        <table class="params-table">
+          <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+          <tbody>
+            <tr><td class="param-name">url</td><td class="param-type">string</td><td>HTTP(S) URL to POST to <span class="badge-req">required</span></td></tr>
+            <tr><td class="param-name">secret</td><td class="param-type">string</td><td>Optional HMAC-SHA256 signing secret</td></tr>
+          </tbody>
+        </table>
+        <div class="tabs" data-group="webhookadd">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="payload">Payload sent to URL</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X POST http://localhost:3000/wallets/UQBvW8Y0.../webhooks \
+  -H 'Content-Type: application/json' \
+  -d '{ "url": "https://your-server.com/hook", "secret": "my-secret" }'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="payload">
+          <div class="code-wrap"><pre>{
+  "event": "new_transaction",
+  "wallet": "UQBvW8Y0...",
+  "tx": {
+    "tx_hash": "abc123ef...",
+    "direction": "in",
+    "amount": "10000000",
+    "token_symbol": "TON",
+    "token_addr": null,
+    "from_addr": "UQC...",
+    "to_addr": "UQBvW8Y0...",
+    "comment": "payment",
+    "timestamp": 1700001234
+  }
+}</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "id": 1,
+  "wallet_addr": "UQBvW8Y0...",
+  "url": "https://your-server.com/hook",
+  "created_at": 1700001234
+}</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/wallets/:address/webhooks</span>
+        <span class="endpoint-summary">List webhooks</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="webhooklist">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl http://localhost:3000/wallets/UQBvW8Y0.../webhooks</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>[
+  {
+    "id": 1,
+    "wallet_addr": "UQBvW8Y0...",
+    "url": "https://your-server.com/hook",
+    "created_at": 1700001234
+  }
+]</pre></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method DELETE">DELETE</span>
+        <span class="endpoint-path">/wallets/:address/webhooks/:id</span>
+        <span class="endpoint-summary">Remove webhook</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="webhookdel">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl -X DELETE http://localhost:3000/wallets/UQBvW8Y0.../webhooks/1</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{ "deleted": true }</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Portfolio -->
+  <section class="section" id="portfolio">
+    <h2 class="section-title">Portfolio</h2>
+    <p class="section-desc">Aggregated USD value across all saved wallets. Prices via CoinGecko (free, no key) for native tokens and MyTonWallet API for TON Jettons.</p>
+
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/portfolio</span>
+        <span class="endpoint-summary">USD summary across all wallets</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="portfolio">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl http://localhost:3000/portfolio</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "total_usd": "12345.67",
+  "wallets": [
+    {
+      "address": "UQBvW8Y0...",
+      "chain": "ton",
+      "label": "Main",
+      "native_usd": "54.20",
+      "tokens_usd": "1000.00",
+      "total_usd": "1054.20"
+    },
+    {
+      "address": "0xf39Fd6...",
+      "chain": "ethereum",
+      "label": null,
+      "native_usd": "3200.00",
+      "tokens_usd": "0.00",
+      "total_usd": "3200.00"
+    }
+  ],
+  "by_chain": {
+    "ton": "1054.20",
+    "ethereum": "3200.00",
+    "tron": "1099.90"
+  }
+}</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Telegram -->
+  <section class="section" id="telegram">
+    <h2 class="section-title">Telegram Notifications</h2>
+    <p class="section-desc">Receive a Telegram message for every new transaction detected across your monitored wallets.</p>
+
+    <div class="note">
+      <strong>Setup:</strong>
+      <ol style="margin:8px 0 0 16px;font-size:12px;line-height:2;">
+        <li>Message <code>@BotFather</code> in Telegram → <code>/newbot</code> → copy the token</li>
+        <li>Find your chat ID via <code>@userinfobot</code> or <code>@Get_myidrobot</code></li>
+        <li>Set both variables in <code>.env</code> and restart</li>
+      </ol>
+    </div>
+
+    <div class="code-wrap has-lang" style="margin-top:12px;">
+      <span class="code-lang">.env</span>
+      <pre>TELEGRAM_BOT_TOKEN=7123456789:AAEm...
+TELEGRAM_CHAT_ID=123456789</pre>
+    </div>
+
+    <p style="color:var(--text-muted);font-size:12px;margin-top:12px;">Example message sent to Telegram on incoming transaction:</p>
+    <div class="code-wrap"><pre>📥 5 TON from UQBvW8Y0...
+UQDq5UUyPH...</pre></div>
+    <p style="color:var(--text-muted);font-size:12px;margin-top:8px;">If neither variable is set, Telegram notifications are silently disabled.</p>
+  </section>
+
+  <!-- Health -->
+  <section class="section" id="health">
+    <h2 class="section-title">Health</h2>
+    <p class="section-desc">Simple liveness check. Returns current server time.</p>
+    <div class="endpoint">
+      <div class="endpoint-header">
+        <span class="method GET">GET</span>
+        <span class="endpoint-path">/health</span>
+        <span class="endpoint-summary">Liveness check</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="endpoint-body">
+        <div class="tabs" data-group="health">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
+        <div class="tab-content active" data-tab="curl">
+          <div class="code-wrap"><pre>curl http://localhost:3000/health</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{ "ok": true, "time": 1700001234 }</pre></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script src="js/app.js"></script>
+</body>
+</html>
