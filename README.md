@@ -1,10 +1,8 @@
-# MyTonWallet API
+# MyTonWallet API · v4.10.7
 
 Self-hosted REST API for multi-chain self-custody wallets.
 
 **Chains:** TON · EVM (Ethereum, Base, BNB, Polygon, Arbitrum, Avalanche, Monad, Hyperliquid) · Solana · TRON
-
-Generating a wallet derives **3 unique addresses**: one TON, one EVM (shared across all 8 EVM chains), one Solana, and one TRON — 11 DB entries total.
 
 ## Setup
 
