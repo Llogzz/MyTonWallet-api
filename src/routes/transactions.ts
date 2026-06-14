@@ -1,32 +1,29 @@
 import { Router, Request, Response } from 'express';
-import { stmtGetTxs, stmtGetWallet, TxRow, WalletRow } from '../db';
+import { stmtGetTxs, stmtGetTxByHash, TxRow } from '../db';
 import { getTransactions } from '../toncenter';
 import { cache, TTL } from '../cache';
-import { normalizeAddress } from '../services/wallet';
+import { resolveOr400 } from '../services/addressContext';
+import { getTxStatus } from '../services/chains';
 import { EVM_CHAINS, evmGetHistory } from '../services/chains/evm';
 import { solanaGetHistory } from '../services/chains/solana';
 import { tronGetHistory } from '../services/chains/tron';
 
 const router = Router({ mergeParams: true });
 
-function tryNormalize(addr: string): string {
-  if (addr.startsWith('0x') || addr.startsWith('0X')) return addr;
-  try { return normalizeAddress(addr); } catch { return addr; }
-}
-
-// GET /wallets/:address/transactions
+// GET /addresses/:address/transactions
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const address = tryNormalize(req.params['address'] as string);
+    const ctx = resolveOr400(req, res);
+    if (!ctx) return;
+    const address = ctx.address;
     const since = req.query.since ? parseInt(req.query.since as string, 10) : undefined;
     const until = req.query.until ? parseInt(req.query.until as string, 10) : undefined;
     const direction = req.query.direction as string | undefined;
     const token = req.query.token as string | undefined;
     const limit = Math.min(parseInt((req.query.limit as string) || '50', 10), 200);
-    const network = (req.query.network as string) || process.env.NETWORK || 'mainnet';
+    const network = (req.query.network as string) || ctx.network;
 
-    const wallet = stmtGetWallet.get(address) as WalletRow | undefined;
-    const chain = wallet?.chain || 'ton';
+    const chain = ctx.chain;
 
     const cacheKey = `tx:${address}:${since}:${until}:${direction}:${token}:${limit}`;
     let cached = cache.get<object[]>(cacheKey);
@@ -95,16 +92,17 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// GET /wallets/:address/incoming
+// GET /addresses/:address/incoming
 router.get('/incoming', async (req: Request, res: Response) => {
   try {
-    const address = tryNormalize(req.params['address'] as string);
+    const ctx = resolveOr400(req, res);
+    if (!ctx) return;
+    const address = ctx.address;
     const since = req.query.since ? parseInt(req.query.since as string, 10) : undefined;
     const limit = Math.min(parseInt((req.query.limit as string) || '50', 10), 200);
-    const network = (req.query.network as string) || process.env.NETWORK || 'mainnet';
+    const network = (req.query.network as string) || ctx.network;
 
-    const wallet = stmtGetWallet.get(address) as WalletRow | undefined;
-    const chain = wallet?.chain || 'ton';
+    const chain = ctx.chain;
 
     const cacheKey = `tx:${address}:in:${since}:${limit}`;
     let cached = cache.get<object[]>(cacheKey);
@@ -161,6 +159,32 @@ router.get('/incoming', async (req: Request, res: Response) => {
       since: since || null,
       transactions: cached,
     });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// GET /accounts/:address/transactions/:hash — status of a specific tx
+router.get('/:hash', async (req: Request, res: Response) => {
+  try {
+    const ctx = resolveOr400(req, res);
+    if (!ctx) return;
+    const hash = req.params['hash'] as string;
+
+    // Check local DB first (TON txs cached by monitor)
+    const local = stmtGetTxByHash.get(hash) as TxRow | undefined;
+    if (local) {
+      res.json({
+        tx_hash: hash,
+        chain: ctx.chain,
+        status: 'confirmed',
+        ...formatTxRow(local),
+      });
+      return;
+    }
+
+    const result = await getTxStatus(ctx.chain, hash, ctx.network);
+    res.json(result);
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }

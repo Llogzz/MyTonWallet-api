@@ -1,13 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { stmtInsertWebhook, stmtGetWebhooks, stmtDeleteWebhook, WebhookRow } from '../db';
-import { normalizeAddress } from '../services/wallet';
+import { normalizeAddr } from '../services/addressContext';
 
 const router = Router({ mergeParams: true });
 
-// POST /wallets/:address/webhooks
+// POST /addresses/:address/webhooks
 router.post('/', (req: Request, res: Response) => {
   try {
-    const address = normalizeAddress(req.params['address'] as string);
+    const address = normalizeAddr(req.params['address'] as string);
     const { url, secret } = req.body as { url?: string; secret?: string };
 
     if (!url || !/^https?:\/\/.+/.test(url)) {
@@ -24,10 +24,10 @@ router.post('/', (req: Request, res: Response) => {
   }
 });
 
-// GET /wallets/:address/webhooks
+// GET /addresses/:address/webhooks
 router.get('/', (req: Request, res: Response) => {
   try {
-    const address = normalizeAddress(req.params['address'] as string);
+    const address = normalizeAddr(req.params['address'] as string);
     const hooks = stmtGetWebhooks.all(address) as WebhookRow[];
     res.json(hooks.map((h) => ({ id: h.id, url: h.url, has_secret: !!h.secret, created_at: h.created_at })));
   } catch (err: unknown) {
@@ -35,10 +35,10 @@ router.get('/', (req: Request, res: Response) => {
   }
 });
 
-// DELETE /wallets/:address/webhooks/:id
+// DELETE /addresses/:address/webhooks/:id
 router.delete('/:id', (req: Request, res: Response) => {
   try {
-    const address = normalizeAddress(req.params['address'] as string);
+    const address = normalizeAddr(req.params['address'] as string);
     const id = parseInt(req.params['id'] as string, 10);
     if (isNaN(id)) { res.status(400).json({ error: 'Invalid id' }); return; }
 

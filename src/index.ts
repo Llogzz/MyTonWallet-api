@@ -4,11 +4,12 @@ import cors from 'cors';
 import { db } from './db';
 
 import walletsRouter from './routes/wallets';
+import addressesRouter from './routes/addresses';
 import transactionsRouter from './routes/transactions';
 import tokensRouter from './routes/tokens';
 import sendRouter from './routes/send';
 import stakingRouter, { stakingCommonHandler } from './routes/staking';
-import swapRouter from './routes/swap';
+import swapRouter, { addressSwapRouter } from './routes/swap';
 import multisendRouter from './routes/multisend';
 import webhooksRouter from './routes/webhooks';
 import portfolioRouter from './routes/portfolio';
@@ -23,19 +24,22 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 app.use(cors());
 app.use(express.json());
 
-// ── Wallets ──────────────────────────────────────────────────────────────────
+// ── Wallets ───────────────────────────────────────────────────────────────────
 app.use('/wallets', walletsRouter);
 
-// ── Transactions ─────────────────────────────────────────────────────────────
-app.use('/wallets/:address/transactions', transactionsRouter);
+// ── Accounts (balance lookup + per-address operations) ────────────────────────
+app.use('/accounts', addressesRouter);
 
-app.get('/wallets/:address/incoming', (req: Request, res: Response, next) => {
+// ── Transactions ──────────────────────────────────────────────────────────────
+app.use('/accounts/:address/transactions', transactionsRouter);
+
+app.get('/accounts/:address/incoming', (req: Request, res: Response, next) => {
   req.url = '/incoming';
   transactionsRouter(req, res, next);
 });
 
-// ── Tokens ───────────────────────────────────────────────────────────────────
-app.use('/wallets/:address/tokens', tokensRouter);
+// ── Tokens ────────────────────────────────────────────────────────────────────
+app.use('/accounts/:address/tokens', tokensRouter);
 app.get('/tokens/known', knownTokensHandler);
 
 app.get('/tokens/prices', async (req: Request, res: Response) => {
@@ -55,25 +59,22 @@ app.get('/tokens/prices', async (req: Request, res: Response) => {
   }
 });
 
-// ── Send ─────────────────────────────────────────────────────────────────────
-app.use('/wallets/:address/send', sendRouter);
-app.use('/wallets/:address/send/multi', multisendRouter);
+// ── Send ──────────────────────────────────────────────────────────────────────
+app.use('/accounts/:address/send', sendRouter);
+app.use('/accounts/:address/send/multi', multisendRouter);
 
-// ── Staking ──────────────────────────────────────────────────────────────────
-app.use('/wallets/:address/staking', stakingRouter);
+// ── Staking ───────────────────────────────────────────────────────────────────
+app.use('/accounts/:address/staking', stakingRouter);
 app.get('/staking/common', stakingCommonHandler);
 
-// ── Swap ─────────────────────────────────────────────────────────────────────
+// ── Swap ──────────────────────────────────────────────────────────────────────
 app.use('/swap', swapRouter);
-app.post('/wallets/:address/swap', (req: Request, res: Response, next) => {
-  req.url = `/wallets/${req.params['address']}/swap`;
-  swapRouter(req, res, next);
-});
+app.use('/accounts/:address/swap', addressSwapRouter);
 
-// ── Webhooks ─────────────────────────────────────────────────────────────────
-app.use('/wallets/:address/webhooks', webhooksRouter);
+// ── Webhooks ──────────────────────────────────────────────────────────────────
+app.use('/accounts/:address/webhooks', webhooksRouter);
 
-// ── Portfolio ────────────────────────────────────────────────────────────────
+// ── Portfolio ─────────────────────────────────────────────────────────────────
 app.use('/', portfolioRouter);
 
 // ── Health ───────────────────────────────────────────────────────────────────

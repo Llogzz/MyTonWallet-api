@@ -3,6 +3,68 @@ import axios from 'axios';
 
 export const EVM_CHAINS = new Set(['ethereum', 'base', 'bnb', 'polygon', 'arbitrum', 'avalanche', 'monad', 'hyperliquid']);
 
+const EVM_NATIVE_SYMBOLS: Record<string, string> = {
+  ethereum: 'ETH', base: 'ETH', bnb: 'BNB', polygon: 'POL',
+  arbitrum: 'ETH', avalanche: 'AVAX', monad: 'MON', hyperliquid: 'HYPE',
+};
+
+export interface FeeEstimate {
+  fee_raw: string;
+  fee: string;
+  native_symbol: string;
+  gas: string;
+  gas_price: string;
+}
+
+export async function evmEstimateFee(params: {
+  chain: string;
+  tokenAddress?: string;
+}): Promise<FeeEstimate> {
+  const provider = getProvider(params.chain);
+  const feeData = await provider.getFeeData();
+  const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice ?? 0n;
+  const gasUnits = params.tokenAddress ? 65000n : 21000n;
+  const fee = gasPrice * gasUnits;
+  return {
+    fee_raw: fee.toString(),
+    fee: ethers.formatEther(fee),
+    native_symbol: EVM_NATIVE_SYMBOLS[params.chain] ?? 'ETH',
+    gas: gasUnits.toString(),
+    gas_price: gasPrice.toString(),
+  };
+}
+
+export interface EvmTxStatus {
+  tx_hash: string;
+  status: 'success' | 'failed' | 'pending' | 'not_found';
+  block?: number;
+  gas_used?: string;
+  from?: string | null;
+  to?: string | null;
+}
+
+export async function evmGetTxStatus(chain: string, hash: string): Promise<EvmTxStatus> {
+  try {
+    const provider = getProvider(chain);
+    const receipt = await provider.getTransactionReceipt(hash);
+    if (!receipt) {
+      const tx = await provider.getTransaction(hash);
+      if (!tx) return { tx_hash: hash, status: 'not_found' };
+      return { tx_hash: hash, status: 'pending', from: tx.from, to: tx.to };
+    }
+    return {
+      tx_hash: hash,
+      status: receipt.status === 1 ? 'success' : 'failed',
+      block: receipt.blockNumber,
+      gas_used: receipt.gasUsed.toString(),
+      from: receipt.from,
+      to: receipt.to,
+    };
+  } catch {
+    return { tx_hash: hash, status: 'not_found' };
+  }
+}
+
 const DERIVATION_PATH = "m/44'/60'/0'/0/0";
 
 const PUBLIC_RPCS: Record<string, string> = {
@@ -84,6 +146,7 @@ export async function evmSend(params: {
   amount: string;
   tokenAddress?: string;
   gasLimit?: number;
+  sendAll?: boolean;
 }): Promise<string> {
   const provider = getProvider(params.chain);
   const hdWallet = ethers.HDNodeWallet.fromPhrase(params.mnemonic.join(' '), undefined, DERIVATION_PATH);
@@ -92,14 +155,32 @@ export async function evmSend(params: {
   if (params.tokenAddress) {
     const erc20 = new ethers.Contract(params.tokenAddress, [
       'function transfer(address to, uint256 amount) returns (bool)',
-      'function decimals() view returns (uint8)',
+      'function balanceOf(address owner) view returns (uint256)',
     ], wallet);
-    const tx = await erc20.transfer(params.to, BigInt(params.amount));
+    let amount: bigint;
+    if (params.sendAll) {
+      amount = (await erc20.balanceOf(wallet.address)) as bigint;
+    } else {
+      amount = BigInt(params.amount);
+    }
+    const tx = await erc20.transfer(params.to, amount);
     return (tx as { hash: string }).hash;
   } else {
+    let value: bigint;
+    if (params.sendAll) {
+      const balance = await provider.getBalance(wallet.address);
+      const feeData = await provider.getFeeData();
+      const gasPrice = feeData.maxFeePerGas ?? feeData.gasPrice ?? 0n;
+      const gasLimit = BigInt(params.gasLimit ?? 21000);
+      const fee = gasPrice * gasLimit;
+      value = balance - fee;
+      if (value <= 0n) throw new Error('Insufficient balance to cover gas fee');
+    } else {
+      value = BigInt(params.amount);
+    }
     const tx = await wallet.sendTransaction({
       to: params.to,
-      value: BigInt(params.amount),
+      value,
       ...(params.gasLimit ? { gasLimit: params.gasLimit } : {}),
     });
     return tx.hash;
@@ -118,16 +199,72 @@ export interface TxEntry {
   timestamp: number;
 }
 
+// Zerion chain IDs used by evmapi.mytonwallet.org (Zerion proxy)
+const ZERION_CHAIN_IDS: Record<string, string> = {
+  ethereum: 'eth', base: 'base', bnb: 'bsc', polygon: 'polygon',
+  arbitrum: 'arbitrum', avalanche: 'avalanche',
+};
+
 export async function evmGetHistory(chain: string, address: string, since?: number): Promise<TxEntry[]> {
+  // Primary: Zerion API via the evmapi proxy (no special RPC needed)
+  const zerionChain = ZERION_CHAIN_IDS[chain];
+  if (zerionChain) {
+    try {
+      const url = `${evmApiUrl()}/v1/wallets/${address}/transactions/`;
+      const { data } = await axios.get(url, {
+        params: { 'filter[chain_ids]': zerionChain, currency: 'usd' },
+        timeout: 10_000,
+      });
+      const txs = (data?.data ?? []) as Array<Record<string, unknown>>;
+      const addrLower = address.toLowerCase();
+      const entries: TxEntry[] = [];
+
+      for (const tx of txs) {
+        const attrs = tx['attributes'] as Record<string, unknown>;
+        const ts = attrs['mined_at']
+          ? Math.floor(new Date(attrs['mined_at'] as string).getTime() / 1000)
+          : 0;
+        if (since && ts && ts < since) continue;
+        const hash = attrs['hash'] as string;
+        const from = (attrs['sent_from'] as string | null) ?? null;
+        const to = (attrs['sent_to'] as string | null) ?? null;
+        const transfers = (attrs['transfers'] as Array<Record<string, unknown>>) || [];
+
+        if (!transfers.length) {
+          entries.push({
+            tx_hash: hash, direction: from?.toLowerCase() === addrLower ? 'out' : 'in',
+            amount: '0', token_symbol: null, token_addr: null,
+            from_addr: from, to_addr: to, comment: null, timestamp: ts,
+          });
+        } else {
+          for (const transfer of transfers) {
+            const dir = (transfer['direction'] as string) === 'out' ? 'out' : 'in';
+            const qty = transfer['quantity'] as Record<string, string> | undefined;
+            const info = transfer['fungible_info'] as Record<string, unknown> | undefined;
+            const impls = (info?.['implementations'] as Array<Record<string, unknown>>) ?? [];
+            const tokenAddr = (impls[0]?.['address'] as string | undefined) ?? null;
+            entries.push({
+              tx_hash: hash, direction: dir,
+              amount: qty?.['int'] ?? '0',
+              token_symbol: (info?.['symbol'] as string) || null,
+              token_addr: tokenAddr,
+              from_addr: from, to_addr: to, comment: null, timestamp: ts,
+            });
+          }
+        }
+      }
+      return entries.sort((a, b) => b.timestamp - a.timestamp);
+    } catch { /* fall through to Alchemy */ }
+  }
+
+  // Fallback: Alchemy-specific method (works when using an Alchemy RPC endpoint)
   try {
     const provider = getProvider(chain);
     const addrLower = address.toLowerCase();
     const baseParams = {
-      fromBlock: '0x0',
-      toBlock: 'latest',
+      fromBlock: '0x0', toBlock: 'latest',
       category: ['external', 'erc20'],
-      maxCount: '0x32',
-      withMetadata: true,
+      maxCount: '0x32', withMetadata: true,
     };
 
     const [inRes, outRes] = await Promise.all([
@@ -138,7 +275,7 @@ export async function evmGetHistory(chain: string, address: string, since?: numb
     const entries: TxEntry[] = [];
     const seen = new Set<string>();
 
-    const process = (res: unknown, direction: 'in' | 'out') => {
+    const processAlchemy = (res: unknown, direction: 'in' | 'out') => {
       const transfers = (res as Record<string, unknown>)?.['transfers'] as Record<string, unknown>[] ?? [];
       for (const t of transfers) {
         const hash = t['hash'] as string;
@@ -153,21 +290,16 @@ export async function evmGetHistory(chain: string, address: string, since?: numb
         const toAddr = (t['to'] as string) || null;
         const dir = fromAddr?.toLowerCase() === addrLower ? 'out' : direction;
         entries.push({
-          tx_hash: hash,
-          direction: dir,
-          amount: String(t['value'] ?? '0'),
+          tx_hash: hash, direction: dir, amount: String(t['value'] ?? '0'),
           token_symbol: (t['asset'] as string) || null,
           token_addr: ((t['rawContract'] as Record<string, string> | undefined)?.['address']) || null,
-          from_addr: fromAddr,
-          to_addr: toAddr,
-          comment: null,
-          timestamp: ts,
+          from_addr: fromAddr, to_addr: toAddr, comment: null, timestamp: ts,
         });
       }
     };
 
-    if (inRes) process(inRes, 'in');
-    if (outRes) process(outRes, 'out');
+    if (inRes) processAlchemy(inRes, 'in');
+    if (outRes) processAlchemy(outRes, 'out');
     return entries.sort((a, b) => b.timestamp - a.timestamp);
   } catch {
     return [];

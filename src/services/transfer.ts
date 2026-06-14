@@ -6,7 +6,7 @@ import {
   WalletContractV4, WalletContractV5R1,
   internal, toNano, JettonMaster,
 } from '@ton/ton';
-import { Address, beginCell, comment as tonComment } from '@ton/core';
+import { Address, Cell, beginCell, comment as tonComment } from '@ton/core';
 import { type WalletVersion, mnemonicToKeyPair } from './wallet';
 
 function makeTonClient(network: string): TonClient {
@@ -36,6 +36,27 @@ function makeContract(publicKey: Buffer, version: WalletVersion): any {
   }
 }
 
+// Build and sign a transfer cell, then broadcast it.
+// Returns the hex hash of the signed body cell — a stable identifier usable
+// with TonCenter's /api/v3/messages?hash= endpoint.
+async function buildAndSend(
+  client: TonClient,
+  contract: ReturnType<typeof makeContract>,
+  kp: { publicKey: Buffer; secretKey: Buffer },
+  messages: ReturnType<typeof internal>[],
+): Promise<string> {
+  const wallet = client.open(contract);
+  const seqno = await (wallet as unknown as { getSeqno(): Promise<number> }).getSeqno();
+
+  const transferCell = (wallet as unknown as {
+    createTransfer(args: { seqno: number; secretKey: Buffer; messages: ReturnType<typeof internal>[] }): Cell;
+  }).createTransfer({ seqno, secretKey: kp.secretKey, messages });
+
+  const msgHash = transferCell.hash().toString('hex');
+  await client.sendExternalMessage(contract, transferCell);
+  return msgHash;
+}
+
 export interface SendTonParams {
   mnemonic: string[];
   version: WalletVersion;
@@ -55,37 +76,55 @@ export interface SendJettonParams {
   commentText?: string;
 }
 
+export interface SendTonMessagesParams {
+  mnemonic: string[];
+  version: WalletVersion;
+  network: string;
+  // Each message amount is in nanotons (raw units), not TON.
+  messages: Array<{ to: string; amount: string; payload?: string; bounce?: boolean }>;
+}
+
 export async function sendTon(params: SendTonParams): Promise<string> {
   const { mnemonic, version, network, toAddress, amount, commentText } = params;
   const kp = await mnemonicToKeyPair(mnemonic);
   const client = makeTonClient(network);
   const contract = makeContract(kp.publicKey, version);
-  const wallet = client.open(contract);
-
-  const seqno = await (wallet as unknown as { getSeqno(): Promise<number> }).getSeqno();
-
   const msgBody = commentText ? tonComment(commentText) : undefined;
 
-  await (wallet as unknown as {
-    sendTransfer(args: {
-      seqno: number;
-      secretKey: Buffer;
-      messages: ReturnType<typeof internal>[];
-    }): Promise<void>;
-  }).sendTransfer({
-    seqno,
-    secretKey: kp.secretKey,
-    messages: [
-      internal({
-        to: Address.parse(toAddress),
-        value: toNano(amount),
-        body: msgBody,
-        bounce: false,
-      }),
-    ],
+  return buildAndSend(client, contract, kp, [
+    internal({
+      to: Address.parse(toAddress),
+      value: toNano(amount),
+      body: msgBody,
+      bounce: false,
+    }),
+  ]);
+}
+
+// Send multiple messages in one external transaction.
+// Used by the TON swap flow where the DEX build API may return >1 message.
+// Amounts must be in nanotons.
+export async function sendTonMessages(params: SendTonMessagesParams): Promise<string> {
+  const kp = await mnemonicToKeyPair(params.mnemonic);
+  const client = makeTonClient(params.network);
+  const contract = makeContract(kp.publicKey, params.version);
+
+  const internalMessages = params.messages.map(msg => {
+    let body: Cell | undefined;
+    if (msg.payload) {
+      try {
+        body = Cell.fromBoc(Buffer.from(msg.payload, 'base64'))[0];
+      } catch { /* invalid payload, skip */ }
+    }
+    return internal({
+      to: Address.parse(msg.to),
+      value: BigInt(msg.amount),   // already in nanotons
+      body,
+      bounce: msg.bounce ?? false,
+    });
   });
 
-  return `Sent ${amount} TON to ${toAddress}`;
+  return buildAndSend(client, contract, kp, internalMessages);
 }
 
 export async function sendJetton(params: SendJettonParams): Promise<string> {
@@ -93,53 +132,38 @@ export async function sendJetton(params: SendJettonParams): Promise<string> {
   const kp = await mnemonicToKeyPair(mnemonic);
   const client = makeTonClient(network);
   const contract = makeContract(kp.publicKey, version);
-  const wallet = client.open(contract);
-  const seqno = await (wallet as unknown as { getSeqno(): Promise<number> }).getSeqno();
 
   const jettonMaster = client.open(JettonMaster.create(Address.parse(jettonMasterAddress)));
   const senderAddr = contract.address;
   const jettonWalletAddress = await jettonMaster.getWalletAddress(senderAddr);
 
-  // Build jetton transfer message body (TEP-74)
   const forwardPayload = commentText
     ? beginCell().storeUint(0, 32).storeStringTail(commentText).endCell()
     : null;
 
   const jettonTransferBody = beginCell()
-    .storeUint(0xf8a7ea5, 32)            // op: jetton transfer
-    .storeUint(0, 64)                     // query_id
-    .storeCoins(BigInt(amount))           // amount in jetton units
+    .storeUint(0xf8a7ea5, 32)           // op: jetton transfer
+    .storeUint(0, 64)                    // query_id
+    .storeCoins(BigInt(amount))          // amount in jetton units
     .storeAddress(Address.parse(toAddress))
-    .storeAddress(senderAddr)             // response_destination
-    .storeBit(false)                      // no custom payload
-    .storeCoins(toNano('0.05'))           // forward_ton_amount
+    .storeAddress(senderAddr)            // response_destination
+    .storeBit(false)                     // no custom payload
+    .storeCoins(toNano('0.05'))          // forward_ton_amount
     .storeBit(forwardPayload !== null)
     .endCell();
 
-  await (wallet as unknown as {
-    sendTransfer(args: {
-      seqno: number;
-      secretKey: Buffer;
-      messages: ReturnType<typeof internal>[];
-    }): Promise<void>;
-  }).sendTransfer({
-    seqno,
-    secretKey: kp.secretKey,
-    messages: [
-      internal({
-        to: jettonWalletAddress,
-        value: toNano('0.1'),
-        body: jettonTransferBody,
-        bounce: true,
-      }),
-    ],
-  });
-
-  return `Sent ${amount} jetton units to ${toAddress}`;
+  return buildAndSend(client, contract, kp, [
+    internal({
+      to: jettonWalletAddress,
+      value: toNano('0.1'),
+      body: jettonTransferBody,
+      bounce: true,
+    }),
+  ]);
 }
 
 export async function estimateTonFee(_params: SendTonParams): Promise<{ fee: string; feeNano: string }> {
-  // Conservative estimate: 0.005 TON for simple transfer
+  // Conservative estimate: 0.005 TON for a simple transfer
   const feeNano = toNano('0.005');
   return { fee: '0.005', feeNano: feeNano.toString() };
 }

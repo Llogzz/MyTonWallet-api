@@ -11,9 +11,9 @@ import {
 import {
   stmtInsertTx,
   stmtGetMaxTs,
-  stmtGetAllWallets,
+  stmtGetAllAddresses,
   stmtGetWebhooks,
-  WalletRow,
+  AddressRow,
   WebhookRow,
 } from '../db';
 import { normalizeAddress } from './wallet';
@@ -82,18 +82,14 @@ function parseActions(actions: AnyToncenterAction[], walletAddr: string): Parsed
 }
 
 function formatTgAmount(raw: string, symbol: string | null): string {
-  // Monitored actions are TON-chain, so native TON has 9 decimals.
   if (symbol === 'TON') {
     const n = BigInt(raw || '0');
     const frac = (n % 1_000_000_000n).toString().padStart(9, '0').replace(/0+$/, '');
     return `${n / 1_000_000_000n}${frac ? '.' + frac : ''} TON`;
   }
-  // Jetton decimals aren't carried on the parsed action — show the raw amount.
   return `${raw} ${symbol ?? 'tokens'}`;
 }
 
-// Plain text (no parse_mode): tx comments are sender-controlled and would
-// otherwise be able to break Markdown parsing and suppress the message.
 function fireTelegram(walletAddr: string, tx: ParsedTx): void {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   const chatId = process.env.TELEGRAM_CHAT_ID;
@@ -155,17 +151,17 @@ function processActions(actions: AnyToncenterAction[], walletAddr: string): numb
   return inserted;
 }
 
-async function pollWallet(wallet: WalletRow): Promise<number> {
-  const row = stmtGetMaxTs.get(wallet.address) as { max_ts: number | null };
-  const since = row?.max_ts ? row.max_ts + 1 : undefined;
+async function pollAddress(row: AddressRow): Promise<number> {
+  const dbRow = stmtGetMaxTs.get(row.address) as { max_ts: number | null };
+  const since = dbRow?.max_ts ? dbRow.max_ts + 1 : undefined;
   let actions: AnyToncenterAction[];
   try {
-    actions = await getActions(wallet.network, wallet.address, { limit: 100, start_utime: since });
+    actions = await getActions(row.network, row.address, { limit: 100, start_utime: since });
   } catch (err) {
-    console.error(`[monitor] HTTP poll error for ${wallet.address}:`, err);
+    console.error(`[monitor] HTTP poll error for ${row.address}:`, err);
     return 0;
   }
-  return processActions(actions, wallet.address);
+  return processActions(actions, row.address);
 }
 
 // ─── WebSocket client ─────────────────────────────────────────────────────────
@@ -180,12 +176,12 @@ class ToncenterWS {
   private connected = false;
   private destroyed = false;
   private currentProxy: string | null = null;
-  private wallets: WalletRow[] = [];
+  private addresses: AddressRow[] = [];
 
   constructor(private readonly network: 'mainnet' | 'testnet') {}
 
-  updateWallets(allWallets: WalletRow[]): void {
-    this.wallets = allWallets.filter((w) => w.network === this.network && (!w.chain || w.chain === 'ton'));
+  updateAddresses(allAddresses: AddressRow[]): void {
+    this.addresses = allAddresses.filter((r) => r.chain === 'ton' && r.network === this.network);
     if (this.connected) this.subscribe();
   }
 
@@ -244,13 +240,13 @@ class ToncenterWS {
   }
 
   private subscribe(): void {
-    const addresses = this.wallets.map((w) => w.address);
-    if (!addresses.length || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    const addrs = this.addresses.map((r) => r.address);
+    if (!addrs.length || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     this.ws.send(JSON.stringify({
       operation: 'subscribe',
       id: String(Date.now()),
-      addresses,
+      addresses: addrs,
       types: ['actions', 'account_state_change', 'jettons_change'],
       min_finality: 'pending',
       include_address_book: true,
@@ -263,7 +259,6 @@ class ToncenterWS {
     let msg: Record<string, unknown>;
     try { msg = JSON.parse(raw); } catch { return; }
 
-    // Subscription confirmation or pong
     if ('status' in msg || 'pong' in msg) return;
 
     const type = msg['type'] as string | undefined;
@@ -272,33 +267,32 @@ class ToncenterWS {
       const actions = (msg['actions'] as AnyToncenterAction[]) || [];
       const addressBook = (msg['address_book'] as Record<string, { user_friendly?: string }>) || {};
 
-      const byWallet = new Map<string, AnyToncenterAction[]>();
+      const byAddr = new Map<string, AnyToncenterAction[]>();
       for (const action of actions) {
         const a = action as Record<string, unknown>;
         const accounts = (a['accounts'] as string[] | undefined) || [];
         for (const rawAddr of accounts) {
           const friendly = addressBook[rawAddr]?.user_friendly ?? rawAddr;
-          const wallet = this.wallets.find(
-            (w) => w.address === friendly || w.address === rawAddr,
+          const row = this.addresses.find(
+            (r) => r.address === friendly || r.address === rawAddr,
           );
-          if (!wallet) continue;
-          const list = byWallet.get(wallet.address) ?? [];
+          if (!row) continue;
+          const list = byAddr.get(row.address) ?? [];
           list.push(action);
-          byWallet.set(wallet.address, list);
+          byAddr.set(row.address, list);
         }
       }
 
-      for (const [addr, walletActions] of byWallet) {
-        try { processActions(walletActions, addr); } catch { /* db error */ }
+      for (const [addr, addrActions] of byAddr) {
+        try { processActions(addrActions, addr); } catch { /* db error */ }
       }
     } else if (type === 'account_state_change') {
       const rawAccount = msg['account'] as string | undefined;
       if (!rawAccount) return;
       const friendly = safeNormalize(rawAccount) || rawAccount;
-      const wallet = this.wallets.find((w) => w.address === friendly || w.address === rawAccount);
-      if (wallet) cache.invalidatePrefix(`balance:${wallet.address}`);
+      const row = this.addresses.find((r) => r.address === friendly || r.address === rawAccount);
+      if (row) cache.invalidatePrefix(`balance:${row.address}`);
     }
-    // jettons_change: cache invalidated on next balance fetch
   }
 
   private startPing(): void {
@@ -322,8 +316,8 @@ class ToncenterWS {
     if (this.fallbackTimer) return;
     console.log(`[ws:${this.network}] Starting fallback polling every ${FALLBACK_INTERVAL_MS / 1000}s`);
     this.fallbackTimer = setInterval(() => {
-      for (const wallet of this.wallets) {
-        pollWallet(wallet).catch(console.error);
+      for (const row of this.addresses) {
+        pollAddress(row).catch(console.error);
       }
     }, FALLBACK_INTERVAL_MS);
   }
@@ -365,36 +359,33 @@ class ToncenterWS {
 const wsClients = new Map<string, ToncenterWS>();
 let nonTonPollTimer: ReturnType<typeof setInterval> | null = null;
 
-async function pollNonTonWallets(): Promise<void> {
-  const all = stmtGetAllWallets.all() as WalletRow[];
-  const nonTon = all.filter(w => w.chain && w.chain !== 'ton');
-  for (const wallet of nonTon) {
+async function pollNonTonAddresses(): Promise<void> {
+  const all = stmtGetAllAddresses.all() as AddressRow[];
+  const nonTon = all.filter(r => r.chain !== 'ton');
+  for (const row of nonTon) {
     try {
-      const row = stmtGetMaxTs.get(wallet.address) as { max_ts: number | null };
-      const since = row?.max_ts ? row.max_ts + 1 : undefined;
-      cache.invalidatePrefix(`balance:${wallet.address}`);
-      cache.invalidatePrefix(`tx:${wallet.address}`);
-      void since; // non-TON history is fetched fresh on request, not cached in DB
+      cache.invalidatePrefix(`balance:${row.address}`);
+      cache.invalidatePrefix(`tx:${row.address}`);
     } catch { /* ignore */ }
   }
 }
 
 export function startMonitor(): void {
-  const allWallets = stmtGetAllWallets.all() as WalletRow[];
-  const networks = new Set(allWallets.filter(w => !w.chain || w.chain === 'ton').map((w) => w.network));
+  const allAddresses = stmtGetAllAddresses.all() as AddressRow[];
+  const tonAddresses = allAddresses.filter(r => r.chain === 'ton');
+  const networks = new Set(tonAddresses.map((r) => r.network));
   if (!networks.size) networks.add(process.env.NETWORK || 'mainnet');
 
   for (const network of networks) {
     if (wsClients.has(network)) continue;
     const ws = new ToncenterWS(network as 'mainnet' | 'testnet');
-    ws.updateWallets(allWallets);
+    ws.updateAddresses(allAddresses);
     wsClients.set(network, ws);
     ws.connect();
   }
 
-  // Poll non-TON wallets to keep cache fresh
   if (!nonTonPollTimer) {
-    nonTonPollTimer = setInterval(pollNonTonWallets, FALLBACK_INTERVAL_MS);
+    nonTonPollTimer = setInterval(pollNonTonAddresses, FALLBACK_INTERVAL_MS);
   }
 
   console.log(`[monitor] Started WebSocket monitoring (${[...networks].join(', ')})`);
@@ -407,22 +398,34 @@ export function stopMonitor(): void {
   proxyManager.destroy();
 }
 
-export function notifyWalletAdded(wallet: WalletRow): void {
-  const network = wallet.network;
-  const allWallets = stmtGetAllWallets.all() as WalletRow[];
+// Called when new TON addresses are added so the WS subscription updates immediately.
+export function notifyAddressesAdded(addrs: AddressRow[]): void {
+  const allAddresses = stmtGetAllAddresses.all() as AddressRow[];
 
-  if (!wsClients.has(network)) {
-    const ws = new ToncenterWS(network as 'mainnet' | 'testnet');
-    ws.updateWallets(allWallets);
-    wsClients.set(network, ws);
-    ws.connect();
-  } else {
-    wsClients.get(network)!.updateWallets(allWallets);
+  const networks = new Set(addrs.filter(r => r.chain === 'ton').map(r => r.network));
+  for (const network of networks) {
+    if (!wsClients.has(network)) {
+      const ws = new ToncenterWS(network as 'mainnet' | 'testnet');
+      ws.updateAddresses(allAddresses);
+      wsClients.set(network, ws);
+      ws.connect();
+    } else {
+      wsClients.get(network)!.updateAddresses(allAddresses);
+    }
   }
 }
 
 export async function syncWalletNow(address: string, network: string): Promise<number> {
   let normalized: string;
   try { normalized = normalizeAddress(address); } catch { normalized = address; }
-  return pollWallet({ id: 0, address: normalized, mnemonic: null, version: 'W5', network, chain: 'ton', label: null, created_at: 0 });
+  const fakeRow: AddressRow = {
+    id: 0, wallet_id: 0,
+    address: normalized,
+    chain: 'ton',
+    network,
+    version: 'W5',
+    label: null,
+    created_at: 0,
+  };
+  return pollAddress(fakeRow);
 }

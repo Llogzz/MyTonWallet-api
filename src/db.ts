@@ -12,16 +12,32 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 db.exec(`
+  -- A wallet is a single mnemonic (seed). One wallet can own many addresses
+  -- across different chains and networks (see the addresses table).
   CREATE TABLE IF NOT EXISTS wallets (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    address     TEXT UNIQUE NOT NULL,
-    mnemonic    TEXT,
-    version     TEXT NOT NULL DEFAULT 'W5',
-    network     TEXT NOT NULL DEFAULT 'mainnet',
-    chain       TEXT NOT NULL DEFAULT 'ton',
+    mnemonic    TEXT UNIQUE,
     label       TEXT,
     created_at  INTEGER NOT NULL
   );
+
+  -- A concrete derived address. network + version determine the address, so
+  -- they live here, not on the wallet. version is TON-only (NULL otherwise).
+  CREATE TABLE IF NOT EXISTS addresses (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    wallet_id   INTEGER NOT NULL,
+    address     TEXT NOT NULL,
+    chain       TEXT NOT NULL,
+    network     TEXT NOT NULL DEFAULT 'mainnet',
+    version     TEXT,
+    label       TEXT,
+    created_at  INTEGER NOT NULL,
+    UNIQUE(address, chain, network),
+    FOREIGN KEY(wallet_id) REFERENCES wallets(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_addresses_wallet ON addresses(wallet_id);
+  CREATE INDEX IF NOT EXISTS idx_addresses_addr   ON addresses(address);
 
   CREATE TABLE IF NOT EXISTS transactions (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,11 +81,18 @@ db.exec(`
 
 export interface WalletRow {
   id: number;
-  address: string;
   mnemonic: string | null;
-  version: string;
-  network: string;
+  label: string | null;
+  created_at: number;
+}
+
+export interface AddressRow {
+  id: number;
+  wallet_id: number;
+  address: string;
   chain: string;
+  network: string;
+  version: string | null;
   label: string | null;
   created_at: number;
 }
@@ -99,28 +122,66 @@ export interface TokenBalanceRow {
   updated_at: number;
 }
 
-// Migrate existing DB: add chain column if missing
-try { db.prepare("ALTER TABLE wallets ADD COLUMN chain TEXT NOT NULL DEFAULT 'ton'").run(); } catch { /* already exists */ }
+export interface WebhookRow {
+  id: number;
+  wallet_addr: string;
+  url: string;
+  secret: string | null;
+  created_at: number;
+}
 
-// Wallets
-export const stmtInsertWallet = db.prepare<[string, string | null, string, string, string, string | null, number]>(
-  `INSERT OR IGNORE INTO wallets (address, mnemonic, version, network, chain, label, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?)`
+// ─── Wallets (a wallet = one mnemonic) ──────────────────────────────────────────
+export const stmtInsertWallet = db.prepare<[string | null, string | null, number]>(
+  `INSERT INTO wallets (mnemonic, label, created_at) VALUES (?, ?, ?)`
 );
 
-export const stmtGetWallet = db.prepare<[string]>(
-  `SELECT * FROM wallets WHERE address = ?`
+export const stmtGetWalletById = db.prepare<[number]>(
+  `SELECT * FROM wallets WHERE id = ?`
+);
+
+export const stmtGetWalletByMnemonic = db.prepare<[string]>(
+  `SELECT * FROM wallets WHERE mnemonic = ?`
 );
 
 export const stmtGetAllWallets = db.prepare(
   `SELECT * FROM wallets ORDER BY created_at DESC`
 );
 
-export const stmtDeleteWallet = db.prepare<[string]>(
-  `DELETE FROM wallets WHERE address = ?`
+export const stmtDeleteWallet = db.prepare<[number]>(
+  `DELETE FROM wallets WHERE id = ?`
 );
 
-// Transactions
+// ─── Addresses (derived per chain/network) ──────────────────────────────────────
+export const stmtInsertAddress = db.prepare<[number, string, string, string, string | null, string | null, number]>(
+  `INSERT OR IGNORE INTO addresses (wallet_id, address, chain, network, version, label, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?)`
+);
+
+export const stmtGetAddressesByWallet = db.prepare<[number]>(
+  `SELECT * FROM addresses WHERE wallet_id = ? ORDER BY id ASC`
+);
+
+// An address string may map to several rows (e.g. one EVM address across chains).
+export const stmtGetAddressRows = db.prepare<[string]>(
+  `SELECT * FROM addresses WHERE address = ?`
+);
+
+export const stmtGetAddressByChain = db.prepare<[string, string, string]>(
+  `SELECT * FROM addresses WHERE address = ? AND chain = ? AND network = ?`
+);
+
+export const stmtGetAllAddresses = db.prepare(
+  `SELECT * FROM addresses ORDER BY id ASC`
+);
+
+export const stmtDeleteAddress = db.prepare<[number, string]>(
+  `DELETE FROM addresses WHERE wallet_id = ? AND address = ?`
+);
+export const stmtDeleteAddressChain = db.prepare<[number, string, string]>(
+  `DELETE FROM addresses WHERE wallet_id = ? AND address = ? AND chain = ?`
+);
+
+// ─── Transactions (TON history is persisted by the monitor) ─────────────────────
 export const stmtInsertTx = db.prepare<[string, string, string, string, string | null, string | null, string | null, string | null, string | null, string | null, number, number]>(
   `INSERT OR IGNORE INTO transactions
      (tx_hash, wallet_addr, direction, amount, token_addr, token_symbol, from_addr, to_addr, comment, lt, timestamp, cached_at)
@@ -135,7 +196,11 @@ export const stmtGetMaxTs = db.prepare<[string]>(
   `SELECT MAX(timestamp) as max_ts FROM transactions WHERE wallet_addr = ?`
 );
 
-// Token balances
+export const stmtGetTxByHash = db.prepare<[string]>(
+  `SELECT * FROM transactions WHERE tx_hash = ? LIMIT 1`
+);
+
+// ─── Token balances ─────────────────────────────────────────────────────────────
 export const stmtUpsertBalance = db.prepare<[string, string, string | null, number | null, string, number]>(
   `INSERT INTO token_balances (wallet_addr, token_addr, token_symbol, decimals, balance, updated_at)
    VALUES (?, ?, ?, ?, ?, ?)
@@ -150,15 +215,7 @@ export const stmtGetBalances = db.prepare<[string]>(
   `SELECT * FROM token_balances WHERE wallet_addr = ?`
 );
 
-export interface WebhookRow {
-  id: number;
-  wallet_addr: string;
-  url: string;
-  secret: string | null;
-  created_at: number;
-}
-
-// Webhooks
+// ─── Webhooks ───────────────────────────────────────────────────────────────────
 export const stmtInsertWebhook = db.prepare<[string, string, string | null, number]>(
   `INSERT INTO webhooks (wallet_addr, url, secret, created_at) VALUES (?, ?, ?, ?)`
 );

@@ -1,185 +1,308 @@
-# MyTonWallet API · v4.10.7
+# MyTonWallet API
 
-Self-hosted REST API implementing the full [MyTonWallet](https://mytonwallet.io) v4.10.7 feature set.
-
-**Docs:** https://llogzz.github.io/MyTonWallet-api
-
----
-
-## Supported Chains
-
-| Chain | Networks | Native | Tokens |
-|---|---|---|---|
-| **TON** | mainnet / testnet | TON | Jettons (USDT, NOT, DOGS, …) |
-| **Ethereum** | mainnet | ETH | ERC-20 |
-| **Base** | mainnet | ETH | ERC-20 |
-| **BNB Smart Chain** | mainnet | BNB | BEP-20 |
-| **Polygon** | mainnet | POL | ERC-20 |
-| **Arbitrum** | mainnet | ETH | ERC-20 |
-| **Avalanche** | mainnet | AVAX | ERC-20 |
-| **Monad** | mainnet | MON | ERC-20 |
-| **HyperLiquid** | mainnet | HYPE | ERC-20 |
-| **Solana** | mainnet | SOL | SPL |
-| **TRON** | mainnet | TRX | TRC-20 (USDT, …) |
-
----
-
-## Features
-
-- Wallet import / generation — TON (W5, v4R2, v3R2, v3R1), EVM, Solana, TRON
-- Multi-chain balance queries (native + tokens)
-- Transaction history (all chains)
-- **Send:** TON, Jettons, ETH / ERC-20, BNB / BEP-20, SOL / SPL, TRX / TRC-20
-- **Multi-send** up to 255 TON recipients in one transaction
-- **Liquid staking** (TON via MyTonWallet pool)
-- **Token swaps** (TON ↔ Jettons via MyTonWallet DEX; EVM via Paraswap; Solana via Jupiter; TRON via SunSwap)
-- **Portfolio** (`GET /portfolio`) — aggregated USD value across all wallets using CoinGecko prices
-- **Telegram notifications** — push new transactions to a Telegram chat via Bot API
-- **Webhook callbacks** (HTTP POST + optional HMAC-SHA256 signing)
-- **Proxy support** (HTTP / SOCKS5, hot-reload, random selection, 5-min failure cooldown)
-- SQLite with WAL mode + in-memory TTL cache
-- WebSocket real-time monitoring (TON); 30 s poll (EVM / Solana / TRON)
-
----
-
-## Requirements
-
-- Node.js 18+
-- npm 8+
-
----
+Multi-chain self-custody wallet REST API. Supports TON, EVM chains (Ethereum, Base, BNB, Polygon, Arbitrum, Avalanche, Monad, Hyperliquid), Solana, and TRON.
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/llogzz/MyTonWallet-api
-cd MyTonWallet-api
+cp .env.example .env   # fill in your keys
 npm install
-# .env is included with sensible defaults — edit if needed
-npm run dev
+npm run dev            # http://localhost:3000
 ```
 
-API is available at `http://localhost:3000`.
-
----
-
-## Configuration
+## Environment Variables
 
 | Variable | Default | Description |
 |---|---|---|
-| `PORT` | `3000` | HTTP server port |
-| `TONCENTER_MAINNET_URL` | `https://toncenter.mytonwallet.org` | Toncenter mainnet API |
-| `TONCENTER_TESTNET_URL` | `https://toncenter-testnet.mytonwallet.org` | Toncenter testnet API |
-| `TONCENTER_API_KEY` | *(empty)* | Optional Toncenter key (higher rate limits) |
-| `NETWORK` | `mainnet` | Default network: `mainnet` or `testnet` |
-| `DB_PATH` | `./data/wallet.db` | SQLite database path |
-| `MONITOR_FALLBACK_INTERVAL_MS` | `30000` | HTTP poll interval (ms) when WebSocket is down |
-| `WS_RECONNECT_MAX_MS` | `30000` | Max WebSocket reconnect backoff (ms) |
-| `EVM_API_URL` | `https://evmapi.mytonwallet.org` | EVM balance / history backend |
-| `SOLANA_RPC_URL` | `https://api.mainnet-beta.solana.com` | Solana JSON-RPC endpoint |
-| `TRON_API_URL` | `https://api.trongrid.io` | TRON REST API |
-| `TRON_API_KEY` | *(empty)* | Optional TronGrid API key |
-| `TELEGRAM_BOT_TOKEN` | *(empty)* | Bot token from @BotFather (enables Telegram notifications) |
-| `TELEGRAM_CHAT_ID` | *(empty)* | Your Telegram chat ID (find via @userinfobot) |
+| `PORT` | `3000` | HTTP port |
+| `DB_PATH` | `./data/wallet.db` | SQLite file path |
+| `NETWORK` | `mainnet` | Default TON network (`mainnet` / `testnet`) |
+| `EXPOSE_SEED_PHRASE` | `false` | Return mnemonic in API responses (set `true` only in dev) |
+| `DEFAULT_CHAINS` | all | Comma-separated chains to derive on import/generate |
+| `TONCENTER_MAINNET_URL` | toncenter.mytonwallet.org | TON API base URL |
+| `TONCENTER_TESTNET_URL` | toncenter-testnet.mytonwallet.org | TON testnet API base URL |
+| `TONCENTER_API_KEY` | — | API key for higher rate limits |
+| `SOLANA_RPC_URL` | https://solana-rpc.publicnode.com | Primary Solana RPC endpoint |
+| `TELEGRAM_BOT_TOKEN` | — | Bot token for tx notifications |
+| `TELEGRAM_CHAT_ID` | — | Chat ID to receive tx notifications |
 
----
-
-## Proxy Support
-
-Add proxies to `proxy.txt` (one per line, created automatically on startup):
+## Database Schema
 
 ```
-# Plain host:port
-34.44.49.215:80
-
-# With credentials
-34.44.49.215:80:user:pass
-socks5://user:pass@34.44.49.215:80
-http://user:pass@34.44.49.215:80
+wallets    id, mnemonic, label, created_at
+accounts   id, wallet_id, address, chain, network, version, label, created_at
 ```
 
-Lines starting with `#` are ignored. Changes apply instantly without restart.
+One wallet (one mnemonic) → many accounts across chains and networks.
 
 ---
 
 ## API Reference
 
 ### Wallets
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/wallets/generate` | Generate new TON wallet + mnemonic |
-| `POST` | `/wallets/import` | Import wallet from mnemonic (all chains) |
-| `GET` | `/wallets` | List all saved wallets |
-| `GET` | `/wallets/:address` | Balance + token overview |
-| `DELETE` | `/wallets/:address` | Remove wallet from DB |
 
-### Transactions
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/wallets/:address/transactions` | History with filters |
-| `GET` | `/wallets/:address/incoming` | Incoming transactions only |
+| `POST` | `/wallets/generate` | Generate a new BIP39 wallet |
+| `POST` | `/wallets/import` | Import existing mnemonic |
+| `GET` | `/wallets` | List all wallets with their accounts |
+| `GET` | `/wallets/:id` | Get one wallet |
+| `GET` | `/wallets/:id/balance` | All chain balances in one call |
+| `POST` | `/wallets/:id/accounts` | Derive account on another chain |
+| `DELETE` | `/wallets/:id/accounts/:address[?chain=]` | Remove one account |
+| `DELETE` | `/wallets/:id` | Delete wallet + all accounts |
 
-### Tokens
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/wallets/:address/tokens` | Token balances (chain-aware) |
-| `GET` | `/tokens/known` | Known TON token list |
-| `GET` | `/tokens/prices` | USD prices by slug |
+**Generate wallet**
+```http
+POST /wallets/generate
+{ "chains": ["ton","ethereum"], "label": "main", "network": "mainnet", "version": "W5" }
+```
 
-### Send
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/wallets/:address/send` | Send native or token (all chains) |
-| `POST` | `/wallets/:address/send/estimate` | Fee estimate (TON) |
-| `POST` | `/wallets/:address/send/multi` | Multi-send up to 255 (TON) |
+**Import wallet**
+```http
+POST /wallets/import
+{ "mnemonic": "word1 word2 ... word24", "chains": ["ton"], "label": "imported" }
+```
 
-### Staking
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/wallets/:address/staking` | Staking position |
-| `POST` | `/wallets/:address/staking/stake` | Stake TON |
-| `POST` | `/wallets/:address/staking/unstake` | Unstake TON |
-| `GET` | `/staking/common` | Pool APY and stats |
+Response includes `id`, `label`, `accounts[]`, `created_at`. Mnemonic only included if `EXPOSE_SEED_PHRASE=true`.
 
-### Swap (TON / Jettons)
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/swap/assets` | Available swap assets |
-| `GET` | `/swap/pairs` | Pairs for an asset |
-| `POST` | `/swap/estimate` | Price estimate |
-| `POST` | `/swap/build` | Build swap transaction (unsigned) |
-| `POST` | `/wallets/:address/swap` | Build + execute swap |
+**Wallet balance summary**
 
-### Webhooks
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/wallets/:address/webhooks` | Register webhook URL |
-| `GET` | `/wallets/:address/webhooks` | List webhooks |
-| `DELETE` | `/wallets/:address/webhooks/:id` | Remove webhook |
+Returns native + token balances for all accounts in a single request. Individual chain errors do not fail the whole response.
 
-### Portfolio
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/portfolio` | USD summary across all wallets (CoinGecko prices) |
+```http
+GET /wallets/1/balance
+```
+```json
+{
+  "wallet_id": 1,
+  "balances": [
+    { "address": "EQD...", "chain": "ton", "native_raw": "1000000000", "native": "1.0", "native_symbol": "TON", "tokens": [] },
+    { "address": "0xABC...", "chain": "ethereum", "native_raw": "500000000000000000", "native": "0.5", "native_symbol": "ETH", "tokens": [] },
+    { "address": "6UZ1...", "chain": "solana", "native_raw": "1000000", "native": "0.001000000", "native_symbol": "SOL", "tokens": [] }
+  ]
+}
+```
 
-### Misc
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/health` | Liveness check |
+**Delete account — chain-specific vs all**
+```http
+DELETE /wallets/1/accounts/0xABC...?chain=ethereum   # remove only ethereum entry
+DELETE /wallets/1/accounts/0xABC...                  # remove all chains sharing this address
+```
+
+EVM chains (ethereum, base, bnb, polygon, arbitrum, avalanche) share the same derived address — use `?chain=` to remove just one chain without touching the others.
 
 ---
 
-## Development
+### Accounts
 
-```bash
-npm run dev    # TypeScript watch mode (ts-node-dev)
-npm run build  # Compile to dist/
-npm start      # Run compiled output
+All account endpoints accept `?chain=` and `?network=` query params when the same address exists on multiple chains.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/accounts/:address` | Native + token balances |
+| `GET` | `/accounts/:address/transactions` | Transaction history |
+| `GET` | `/accounts/:address/transactions/:hash` | Status of a specific tx by hash |
+| `GET` | `/accounts/:address/incoming` | Incoming transactions only |
+| `GET` | `/accounts/:address/tokens` | Token / jetton balances |
+| `POST` | `/accounts/:address/send` | Send native or token |
+| `POST` | `/accounts/:address/send/estimate` | Estimate fee (all chains) |
+| `POST` | `/accounts/:address/send/multi` | Multi-send (TON only, max 255) |
+| `GET` | `/accounts/:address/staking` | Staking profits |
+| `POST` | `/accounts/:address/stake` | Stake TON (liquid staking) |
+| `POST` | `/accounts/:address/unstake` | Unstake |
+| `POST` | `/accounts/:address/swap` | Execute swap |
+| `GET` | `/accounts/:address/webhooks` | List webhooks |
+| `POST` | `/accounts/:address/webhooks` | Register webhook |
+| `DELETE` | `/accounts/:address/webhooks/:id` | Delete webhook |
+
+**Get balance**
+```http
+GET /accounts/EQD...abc
+GET /accounts/0xABC...?chain=ethereum
+GET /accounts/6UZ1...?chain=solana
+```
+
+**Send — specify amount**
+```http
+POST /accounts/EQD...abc/send
+{ "to": "EQD...xyz", "amount": "1000000000", "comment": "hi" }
+```
+Mnemonic is taken from the stored wallet. Pass `"mnemonic": [...]` to override.
+
+**Send max (sweep entire balance)**
+
+Pass `"all": true` instead of `"amount"`. The API deducts the estimated fee from the current balance and sends the remainder.
+
+```http
+POST /accounts/EQD...abc/send
+{ "to": "EQD...xyz", "all": true }
+```
+```http
+POST /accounts/0xABC.../send?chain=ethereum
+{ "to": "0xDEF...", "all": true }
+```
+```http
+POST /accounts/6UZ1.../send?chain=solana
+{ "to": "DEST...", "all": true }
+```
+
+> **Solana note:** Sending `"all": true` on a Solana account deducts exactly 5 000 lamports (one signature fee) from the current balance. This drains the account to 0, which closes it on-chain. If the remaining lamports after fee would be below 0, the request returns an error.
+
+**Send ERC-20 / SPL token / TRC-20**
+```http
+POST /accounts/0xABC.../send?chain=ethereum
+{ "to": "0xDEF...", "amount": "1000000", "token": "0xUSDT..." }
+```
+
+**Multi-send (TON)**
+```http
+POST /accounts/EQD...abc/send/multi
+{ "recipients": [{ "to": "EQD...", "amount": "1000000000" }, ...] }
 ```
 
 ---
 
-## License
+### Fee Estimation
 
-MIT
-"# MyTonWallet-api" 
+Works for all supported chains.
+
+```http
+POST /accounts/:address/send/estimate[?chain=]
+```
+
+Optional body fields: `{ "to": "...", "amount": "...", "token": "0x..." }` — used for a more precise TON estimate; ignored for other chains.
+
+**TON**
+```json
+{ "estimated_fee": "0.005", "estimated_fee_raw": "5000000", "native_symbol": "TON" }
+```
+
+**Ethereum (live gas price)**
+```json
+{
+  "fee_raw": "2614046778000",
+  "fee": "0.000002614046778",
+  "native_symbol": "ETH",
+  "gas": "21000",
+  "gas_price": "124478418"
+}
+```
+Token transfers use `gas: "65000"` automatically.
+
+**Solana**
+```json
+{ "fee_raw": "5000", "fee": "0.000005000", "native_symbol": "SOL" }
+```
+
+**TRON**
+```json
+{ "fee_raw": "1000000", "fee": "1.0", "native_symbol": "TRX", "note": "..." }
+```
+
+---
+
+### Transaction Status by Hash
+
+Checks the local DB first (TON txs cached by the background monitor), then falls back to the chain RPC.
+
+```http
+GET /accounts/EQD...abc/transactions/HASH
+GET /accounts/0xABC.../transactions/0xHASH?chain=ethereum
+GET /accounts/6UZ1.../transactions/SIGNATURE?chain=solana
+```
+
+```json
+{
+  "tx_hash": "0xabc...",
+  "chain": "ethereum",
+  "status": "success",
+  "block": 21840000,
+  "timestamp": 1718000000,
+  "from": "0xSENDER",
+  "to": "0xRECIPIENT"
+}
+```
+
+Possible `status` values: `success`, `failed`, `pending`, `not_found`.
+
+---
+
+### Swap
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/swap/assets` | Available swap assets |
+| `GET` | `/swap/pairs?asset=TON` | Pairs for asset |
+| `POST` | `/swap/estimate` | Estimate swap |
+| `POST` | `/swap/build` | Build TON swap tx (no execution) |
+| `POST` | `/accounts/:address/swap` | Execute swap |
+
+**TON swap**
+```http
+POST /accounts/EQD...abc/swap
+{ "from": "TON", "to": "USDT", "amount": "1000000000", "slippage": 0.5 }
+```
+
+**EVM swap**
+```http
+POST /accounts/0xABC.../swap?chain=ethereum
+{ "fromToken": "0xETH", "toToken": "0xUSDC", "amount": "1000000000000000000" }
+```
+
+---
+
+### Tokens & Prices
+
+```http
+GET /tokens/known              # built-in TON token list (~500 tokens)
+GET /tokens/prices?slugs=TON,USDT
+```
+
+---
+
+### Staking
+
+```http
+GET  /staking/common
+GET  /accounts/EQD...abc/staking
+POST /accounts/EQD...abc/stake    { "amount": "10" }    # 10 TON
+POST /accounts/EQD...abc/unstake  { "amount": "..." }   # tsTON units
+```
+
+---
+
+### Webhooks
+
+Webhooks fire on every new TON transaction for the account.
+
+```http
+POST /accounts/EQD...abc/webhooks
+{ "url": "https://yourserver.com/hook", "secret": "optional-hmac-secret" }
+```
+
+Delivery includes `X-Signature: sha256=<hmac>` header when secret is set.
+
+---
+
+### Portfolio
+
+```http
+GET /portfolio    # USD value across all accounts and chains
+```
+
+---
+
+### Health
+
+```http
+GET /health
+```
+
+---
+
+## Solana RPC Fallback
+
+The Solana service tries RPCs in order: the value of `SOLANA_RPC_URL`, then the bundled fallback (`solana-rpc.publicnode.com`). If the primary endpoint fails, the next one is tried automatically. Set `SOLANA_RPC_URL` in `.env` to your preferred or paid RPC to reduce fallback reliance.
+
+Some publicnode endpoints restrict methods like `getParsedTokenAccountsByOwner` — in that case token balances are returned as an empty array without erroring.

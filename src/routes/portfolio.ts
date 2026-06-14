@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
-import { stmtGetAllWallets, WalletRow } from '../db';
+import { stmtGetAllAddresses, AddressRow } from '../db';
 import { EVM_CHAINS, evmGetBalance } from '../services/chains/evm';
 import { solanaGetBalance } from '../services/chains/solana';
 import { tronGetBalance } from '../services/chains/tron';
@@ -8,8 +8,6 @@ import { getWalletStates, getJettonWallets, getTokenPrices } from '../toncenter'
 
 const router = Router();
 
-// Maps a chain to its native coin's CoinGecko id. Chains whose native coin
-// has no listing yet (e.g. Monad) are omitted and priced at $0.
 const COINGECKO_IDS: Record<string, string> = {
   ethereum:    'ethereum',
   base:        'ethereum',
@@ -39,27 +37,26 @@ async function getCoingeckoPrices(): Promise<Record<string, number>> {
   }
 }
 
-interface WalletValue {
+interface AddressValue {
   address: string;
   chain: string;
+  network: string;
   label: string | null;
   native: number;
   tokens: number;
 }
 
-// Native + (TON only) Jetton value in USD for a single wallet.
-async function valueWallet(wallet: WalletRow, prices: Record<string, number>): Promise<WalletValue> {
-  const chain = wallet.chain || 'ton';
+async function valueAddress(row: AddressRow, prices: Record<string, number>): Promise<AddressValue> {
+  const { address, chain, network, label } = row;
   let native = 0;
   let tokens = 0;
 
   try {
     if (chain === 'ton') {
-      const network = wallet.network || process.env.NETWORK || 'mainnet';
-      const [state] = await getWalletStates(network, [wallet.address]);
+      const [state] = await getWalletStates(network, [address]);
       native = (Number(BigInt(state?.balance || '0')) / 1e9) * (prices['toncoin'] || 0);
 
-      const { jetton_wallets, metadata } = await getJettonWallets(network, wallet.address);
+      const { jetton_wallets, metadata } = await getJettonWallets(network, address);
       const nonZero = jetton_wallets.filter(j => j.balance !== '0');
       if (nonZero.length) {
         const jettonPrices = await getTokenPrices(nonZero.map(j => j.jetton));
@@ -69,43 +66,44 @@ async function valueWallet(wallet: WalletRow, prices: Record<string, number>): P
         }
       }
     } else if (EVM_CHAINS.has(chain)) {
-      const { native: bal } = await evmGetBalance(chain, wallet.address);
+      const { native: bal } = await evmGetBalance(chain, address);
       native = parseFloat(bal) * (prices[COINGECKO_IDS[chain]] || 0);
     } else if (chain === 'solana') {
-      const { native: bal } = await solanaGetBalance(wallet.address);
+      const { native: bal } = await solanaGetBalance(address);
       native = parseFloat(bal) * (prices['solana'] || 0);
     } else if (chain === 'tron') {
-      const { native: bal } = await tronGetBalance(wallet.address);
+      const { native: bal } = await tronGetBalance(address);
       native = parseFloat(bal) * (prices['tron'] || 0);
     }
-  } catch { /* an unreachable chain shouldn't sink the whole portfolio */ }
+  } catch { /* don't sink the whole portfolio on a single chain error */ }
 
-  return { address: wallet.address, chain, label: wallet.label, native, tokens };
+  return { address, chain, network, label, native, tokens };
 }
 
 router.get('/portfolio', async (_req: Request, res: Response) => {
   try {
-    const wallets = stmtGetAllWallets.all() as WalletRow[];
+    const addresses = stmtGetAllAddresses.all() as AddressRow[];
     const prices = await getCoingeckoPrices();
-    const valued = await Promise.all(wallets.map(w => valueWallet(w, prices)));
+    const valued = await Promise.all(addresses.map(a => valueAddress(a, prices)));
 
     const byChain: Record<string, number> = {};
     let total = 0;
-    for (const w of valued) {
-      const sum = w.native + w.tokens;
+    for (const a of valued) {
+      const sum = a.native + a.tokens;
       total += sum;
-      byChain[w.chain] = (byChain[w.chain] || 0) + sum;
+      byChain[a.chain] = (byChain[a.chain] || 0) + sum;
     }
 
     res.json({
       total_usd: total.toFixed(2),
-      wallets: valued.map(w => ({
-        address: w.address,
-        chain: w.chain,
-        label: w.label,
-        native_usd: w.native.toFixed(2),
-        tokens_usd: w.tokens.toFixed(2),
-        total_usd: (w.native + w.tokens).toFixed(2),
+      addresses: valued.map(a => ({
+        address: a.address,
+        chain: a.chain,
+        network: a.network,
+        label: a.label,
+        native_usd: a.native.toFixed(2),
+        tokens_usd: a.tokens.toFixed(2),
+        total_usd: (a.native + a.tokens).toFixed(2),
       })),
       by_chain: Object.fromEntries(Object.entries(byChain).map(([c, v]) => [c, v.toFixed(2)])),
     });

@@ -1,8 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getJettonWallets } from '../toncenter';
 import { cache, TTL } from '../cache';
-import { normalizeAddress } from '../services/wallet';
-import { stmtGetWallet, WalletRow } from '../db';
+import { resolveOr400 } from '../services/addressContext';
 import { EVM_CHAINS, evmGetBalance } from '../services/chains/evm';
 import { solanaGetBalance } from '../services/chains/solana';
 import { tronGetBalance } from '../services/chains/tron';
@@ -519,19 +518,14 @@ const KNOWN_TOKENS: Array<{ address: string; symbol: string; name: string; decim
 const KNOWN_MAP: Record<string, { symbol: string; name: string; decimals: number }> = {};
 for (const t of KNOWN_TOKENS) KNOWN_MAP[t.address] = t;
 
-// GET /wallets/:address/tokens
+// GET /addresses/:address/tokens
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const rawAddr = req.params['address'] as string;
-    const network = req.query.network as string || process.env.NETWORK || 'mainnet';
-
-    let address = rawAddr;
-    if (!rawAddr.startsWith('0x') && !rawAddr.startsWith('0X')) {
-      try { address = normalizeAddress(rawAddr); } catch { /* non-TON */ }
-    }
-
-    const wallet = stmtGetWallet.get(address) as WalletRow | undefined;
-    const chain = wallet?.chain || 'ton';
+    const ctx = resolveOr400(req, res);
+    if (!ctx) return;
+    const address = ctx.address;
+    const chain = ctx.chain;
+    const network = (req.query.network as string) || ctx.network;
 
     const cacheKey = `jettons:${address}:${chain}`;
     let cached = cache.get<object[]>(cacheKey);

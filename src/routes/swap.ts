@@ -2,15 +2,18 @@ import { Router, Request, Response } from 'express';
 import axios from 'axios';
 import { getSwapAssets, getSwapPairs, postSwapEstimate } from '../toncenter';
 import { cache, TTL } from '../cache';
-import { stmtGetWallet, WalletRow } from '../db';
-import { normalizeAddress } from '../services/wallet';
-import { sendTon } from '../services/transfer';
+import { resolveOr400, mnemonicWords } from '../services/addressContext';
+import { sendTonMessages } from '../services/transfer';
 import type { WalletVersion } from '../services/wallet';
 import { EVM_CHAINS, evmSwapQuote, evmSwapBuild, evmSwapExecute } from '../services/chains/evm';
 import { solanaSwapQuote, solanaSwapExecute } from '../services/chains/solana';
 import { tronSwapQuote, tronSwapExecute } from '../services/chains/tron';
 
+// Generic swap routes (assets, pairs, estimate, build) — mounted at /swap
 const router = Router();
+
+// Address-specific swap execution — mounted at /addresses/:address/swap
+export const addressSwapRouter = Router({ mergeParams: true });
 
 const SWAP_API = 'https://api.mytonwallet.org';
 
@@ -54,23 +57,36 @@ router.post('/estimate', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'from, to, fromAmount are required' });
       return;
     }
-    const result = await postSwapEstimate(body);
+    // Include swap versioning parameters required by the MyTonWallet backend
+    const result = await postSwapEstimate({
+      ...body,
+      walletVersion: body.walletVersion || 'W5',
+      swapVersion: body.swapVersion ?? 2,
+    });
     res.json(result);
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-// POST /swap/build  — build swap tx without executing (TON only)
-// Body: { from, to, amount, slippage, walletAddress }
+// POST /swap/build — build swap tx without executing (TON only)
+// Body: { from, to, amount, slippage, walletAddress, walletVersion?, swapVersion? }
 router.post('/build', async (req: Request, res: Response) => {
   try {
-    const body = req.body as { from?: string; to?: string; amount?: string; slippage?: number; walletAddress?: string };
+    const body = req.body as {
+      from?: string; to?: string; amount?: string; slippage?: number;
+      walletAddress?: string; walletVersion?: string; swapVersion?: number;
+    };
     if (!body.from || !body.to || !body.amount || !body.walletAddress) {
       res.status(400).json({ error: 'from, to, amount, walletAddress are required' });
       return;
     }
-    const { data } = await axios.post(`${SWAP_API}/swap/build`, body, { timeout: 15_000 });
+    const { data } = await axios.post(`${SWAP_API}/swap/build`, {
+      ...body,
+      walletVersion: body.walletVersion || 'W5',
+      swapVersion: body.swapVersion ?? 2,
+      isMsgHashMode: true,
+    }, { timeout: 15_000 });
     res.json(data);
   } catch (err: unknown) {
     if (axios.isAxiosError(err)) {
@@ -81,50 +97,52 @@ router.post('/build', async (req: Request, res: Response) => {
   }
 });
 
-// POST /wallets/:address/swap  — build + execute swap (all chains)
-// TON body:  { mnemonic?, from, to, amount, slippage }
-// EVM body:  { mnemonic?, fromToken, toToken, amount, slippage, srcDecimals, destDecimals }
-// SOL body:  { mnemonic?, fromToken, toToken, amount, slippageBps }
-// TRON body: { mnemonic?, fromToken, toToken, amount, slippage }
-router.post('/wallets/:address/swap', async (req: Request, res: Response) => {
+// POST /addresses/:address/swap — build + execute swap (all chains)
+addressSwapRouter.post('/', async (req: Request, res: Response) => {
   try {
-    const address = normalizeAddress(req.params['address'] as string);
+    const ctx = resolveOr400(req, res);
+    if (!ctx) return;
+
     const body = req.body as {
       mnemonic?: string | string[];
       from?: string; to?: string;
       fromToken?: string; toToken?: string;
       amount?: string; slippage?: number;
       srcDecimals?: number; destDecimals?: number; slippageBps?: number;
+      walletVersion?: string; swapVersion?: number;
     };
 
-    const wallet = stmtGetWallet.get(address) as WalletRow | undefined;
-    const mnemonic = body.mnemonic
-      ? (Array.isArray(body.mnemonic) ? body.mnemonic : body.mnemonic.trim().split(/\s+/))
-      : wallet?.mnemonic?.split(' ');
-
+    const mnemonic = mnemonicWords(ctx, body.mnemonic);
     if (!mnemonic) { res.status(400).json({ error: 'mnemonic required' }); return; }
 
-    const chain = wallet?.chain || 'ton';
-    const network = wallet?.network || process.env.NETWORK || 'mainnet';
+    const { address, chain, network } = ctx;
 
     if (chain === 'ton') {
       if (!body.from || !body.to || !body.amount) {
         res.status(400).json({ error: 'from, to, amount are required' }); return;
       }
-      const version = (wallet?.version || 'W5') as WalletVersion;
+      const version = (body.walletVersion || ctx.version || 'W5') as WalletVersion;
+
       const { data: buildResult } = await axios.post(`${SWAP_API}/swap/build`, {
         from: body.from, to: body.to, amount: body.amount,
         slippage: body.slippage ?? 0.5, walletAddress: address,
+        walletVersion: version,
+        swapVersion: body.swapVersion ?? 2,
+        isMsgHashMode: true,
       }, { timeout: 15_000 });
+
       const messages = (buildResult.messages || buildResult.txs || []) as Array<Record<string, unknown>>;
       if (!messages.length) { res.status(500).json({ error: 'No messages returned from swap build' }); return; }
-      const msg = messages[0] as Record<string, unknown>;
-      const txHash = await sendTon({
-        mnemonic, version, network,
-        toAddress: (msg['toAddress'] || msg['to']) as string,
-        amount: (msg['amount'] || msg['value']) as string,
-        commentText: undefined,
-      });
+
+      // Send ALL messages in one external transaction (multi-step swaps require this)
+      const tonMessages = messages.map(msg => ({
+        to: (msg['toAddress'] || msg['to']) as string,
+        amount: String(msg['amount'] || msg['value'] || '0'),
+        payload: msg['payload'] as string | undefined,
+        bounce: false,
+      }));
+
+      const txHash = await sendTonMessages({ mnemonic, version, network, messages: tonMessages });
       res.json({ ok: true, tx_hash: txHash, messages_count: messages.length });
 
     } else if (EVM_CHAINS.has(chain)) {
@@ -169,6 +187,4 @@ router.post('/wallets/:address/swap', async (req: Request, res: Response) => {
   }
 });
 
-// Re-export for use in index.ts
-export { router as swapWalletHandler };
 export default router;

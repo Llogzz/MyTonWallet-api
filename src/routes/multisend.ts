@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { stmtGetWallet, WalletRow } from '../db';
-import { normalizeAddress, mnemonicToKeyPair, type WalletVersion } from '../services/wallet';
+import { mnemonicToKeyPair, type WalletVersion } from '../services/wallet';
+import { resolveOr400 } from '../services/addressContext';
 import { cache } from '../cache';
 import {
   TonClient, WalletContractV1R1, WalletContractV1R2, WalletContractV1R3,
@@ -18,12 +18,15 @@ interface Recipient {
   token?: string;  // jetton master address; omit for TON
 }
 
-// POST /wallets/:address/send/multi
+// POST /addresses/:address/send/multi  (TON only)
 // Body: { recipients: [{ to, amount, comment?, token? }] }
-// Max 4 recipients per tx (TON wallet limit per message)
+// Max 255 recipients per tx (TON wallet limit per message)
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const address = normalizeAddress(req.params['address'] as string);
+    const ctx = resolveOr400(req, res);
+    if (!ctx) return;
+    if (ctx.chain !== 'ton') { res.status(400).json({ error: 'Multi-send is TON-only' }); return; }
+    const address = ctx.address;
     const { recipients } = req.body as { recipients: Recipient[] };
 
     if (!Array.isArray(recipients) || recipients.length === 0) {
@@ -35,15 +38,14 @@ router.post('/', async (req: Request, res: Response) => {
       return;
     }
 
-    const wallet = stmtGetWallet.get(address) as WalletRow | undefined;
-    if (!wallet?.mnemonic) {
+    if (!ctx.mnemonic) {
       res.status(400).json({ error: 'Wallet must be imported with mnemonic' });
       return;
     }
 
-    const network = wallet.network || process.env.NETWORK || 'mainnet';
-    const version = (wallet.version || 'W5') as WalletVersion;
-    const kp = await mnemonicToKeyPair(wallet.mnemonic.split(' '));
+    const network = ctx.network;
+    const version = (ctx.version || 'W5') as WalletVersion;
+    const kp = await mnemonicToKeyPair(ctx.mnemonic.split(' '));
     const client = makeTonClient(network);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const contract: any = makeContract(kp.publicKey, version);
