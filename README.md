@@ -1,18 +1,16 @@
 # MyTonWallet API · v4.10.7
 
-Self-hosted REST API for multi-chain self-custody wallets. **[Documentation](https://llogzz.github.io/MyTonWallet-api/)**
+Self-hosted REST API for multi-chain self-custody wallets.
 
 **Chains:** TON · EVM (Ethereum, Base, BNB, Polygon, Arbitrum, Avalanche, Monad, Hyperliquid) · Solana · TRON
 
-## Setup
+**[→ Full Documentation](https://llogzz.github.io/MyTonWallet-api/)**
+
+## Quick start
 
 ```bash
-cp .env.example .env
-npm install
-npm run dev   # http://localhost:3000
+cp .env.example .env && npm install && npm run dev
 ```
-
-> **Security:** This API stores wallet mnemonics. Keep port `3000` closed in your firewall — never expose it to the public internet. Use a reverse proxy (nginx/Caddy) with auth if you need remote access.
 
 Key env vars:
 
