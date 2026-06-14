@@ -1,40 +1,108 @@
 import { Router, Request, Response } from 'express';
-import { generateMnemonic, mnemonicToWallet, normalizeAddress, type WalletVersion } from '../services/wallet';
-import { mnemonicValidate } from '@ton/crypto';
 import * as bip39 from 'bip39';
-import { stmtInsertWallet, stmtGetWallet, stmtGetAllWallets, stmtDeleteWallet, WalletRow } from '../db';
-import { getWalletStates, getJettonWallets } from '../toncenter';
-import { cache, TTL } from '../cache';
-import { syncWalletNow, notifyWalletAdded } from '../services/monitor';
-import { EVM_CHAINS, evmMnemonicToAddress, evmGetBalance } from '../services/chains/evm';
-import { solanaMnemonicToAddress, solanaGetBalance } from '../services/chains/solana';
-import { tronMnemonicToAddress, tronGetBalance } from '../services/chains/tron';
+import { mnemonicValidate } from '@ton/crypto';
+import {
+  stmtInsertWallet, stmtGetWalletById, stmtGetWalletByMnemonic,
+  stmtGetAllWallets, stmtDeleteWallet,
+  stmtInsertAddress, stmtGetAddressesByWallet,
+  stmtDeleteAddress, stmtDeleteAddressChain,
+  type WalletRow, type AddressRow,
+} from '../db';
+import {
+  SUPPORTED_CHAINS, isSupportedChain, deriveAddress, getBalance,
+} from '../services/chains';
+import { isBip39Mnemonic, type WalletVersion } from '../services/wallet';
+import { notifyAddressesAdded, syncWalletNow } from '../services/monitor';
 
 const router = Router();
-const NETWORK = process.env.NETWORK || 'mainnet';
+const DEFAULT_NETWORK = process.env.NETWORK || 'mainnet';
 
-const KNOWN_TOKENS: Record<string, { symbol: string; decimals: number }> = {
-  'EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs': { symbol: 'USDT', decimals: 6 },
-  'EQAIb6KmdfdDR7CN1GBqVJuP25iCnLKCvBlJ07Evuu2dzP5f': { symbol: 'USDe', decimals: 6 },
-  'EQDQ5UUyPHrLcQJlPAczd_fjxn8SLrlNQwolBznxCdSlfQwr': { symbol: 'tsUSDe', decimals: 6 },
-  'EQBlqsm144Dq6SjbPI4jjZvA1hqTIP3CvHovbIfW_t-SCALE': { symbol: 'SCALE', decimals: 9 },
-};
+function formatWallet(wallet: WalletRow, addresses: AddressRow[]) {
+  return {
+    id: wallet.id,
+    label: wallet.label,
+    created_at: wallet.created_at,
+    addresses: addresses.map(a => ({
+      address: a.address,
+      chain: a.chain,
+      network: a.network,
+      version: a.version,
+      label: a.label,
+    })),
+  };
+}
 
-function tryNormalize(address: string): string {
-  if (address.startsWith('0x') || address.startsWith('0X')) return address;
-  try { return normalizeAddress(address); } catch { return address; }
+function parseId(raw: string): number | null {
+  const n = parseInt(raw, 10);
+  return isNaN(n) ? null : n;
+}
+
+async function deriveAll(
+  words: string[],
+  chains: string[],
+  version: WalletVersion,
+  network: string,
+  walletId: number,
+  label: string | null,
+): Promise<{ skipped: string[] }> {
+  const now = Math.floor(Date.now() / 1000);
+  const skipped: string[] = [];
+  for (const chain of chains) {
+    if (!isSupportedChain(chain)) { skipped.push(chain); continue; }
+    try {
+      const { address, version: addrVer } = await deriveAddress(chain, words, { version });
+      stmtInsertAddress.run(walletId, address, chain, network, chain === 'ton' ? addrVer : null, label, now);
+    } catch {
+      skipped.push(chain);
+    }
+  }
+  return { skipped };
+}
+
+function notifyAndSync(walletId: number): void {
+  const all = stmtGetAddressesByWallet.all(walletId) as AddressRow[];
+  const tonAddrs = all.filter(a => a.chain === 'ton');
+  if (tonAddrs.length > 0) {
+    notifyAddressesAdded(tonAddrs);
+    tonAddrs.forEach(a => syncWalletNow(a.address, a.network).catch(() => {}));
+  }
 }
 
 // POST /wallets/generate
-router.post('/generate', async (_req: Request, res: Response) => {
+router.post('/generate', async (req: Request, res: Response) => {
   try {
-    const mnemonic = await generateMnemonic();
-    const { address } = await mnemonicToWallet(mnemonic, 'W5');
+    const {
+      chains = SUPPORTED_CHAINS,
+      label = null,
+      version = 'W5',
+      network = DEFAULT_NETWORK,
+    } = (req.body || {}) as {
+      chains?: string[];
+      label?: string | null;
+      version?: string;
+      network?: string;
+    };
+
+    const words = bip39.generateMnemonic(256).split(' ');
     const now = Math.floor(Date.now() / 1000);
-    stmtInsertWallet.run(address, mnemonic.join(' '), 'W5', NETWORK, 'ton', null, now);
-    notifyWalletAdded(stmtGetWallet.get(address) as WalletRow);
-    syncWalletNow(address, NETWORK).catch(() => {});
-    res.json({ mnemonic, address, version: 'W5', network: NETWORK, chain: 'ton' });
+    const { lastInsertRowid } = stmtInsertWallet.run(words.join(' '), label, now);
+    const walletId = lastInsertRowid as number;
+
+    const { skipped } = await deriveAll(words, chains, version as WalletVersion, network, walletId, label);
+    notifyAndSync(walletId);
+
+    const wallet = stmtGetWalletById.get(walletId) as WalletRow;
+    const addresses = stmtGetAddressesByWallet.all(walletId) as AddressRow[];
+
+    const response: Record<string, unknown> = {
+      ...formatWallet(wallet, addresses),
+      seed_stored: true,
+      seed_returned: false,
+      skipped,
+    };
+    if (process.env.EXPOSE_SEED_PHRASE === 'true') response['mnemonic'] = words;
+
+    res.status(201).json(response);
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
@@ -43,64 +111,60 @@ router.post('/generate', async (_req: Request, res: Response) => {
 // POST /wallets/import
 router.post('/import', async (req: Request, res: Response) => {
   try {
-    const { mnemonic, version = 'W5', label, network = NETWORK, chain = 'ton' } = req.body as {
-      mnemonic: string | string[];
-      version?: WalletVersion;
-      label?: string;
+    const {
+      mnemonic,
+      chains = SUPPORTED_CHAINS,
+      label = null,
+      version = 'W5',
+      network = DEFAULT_NETWORK,
+    } = (req.body || {}) as {
+      mnemonic?: string | string[];
+      chains?: string[] | string;
+      label?: string | null;
+      version?: string;
       network?: string;
-      chain?: string;
     };
 
-    if (!mnemonic) {
-      res.status(400).json({ error: 'mnemonic is required' });
-      return;
-    }
+    if (!mnemonic) { res.status(400).json({ error: 'mnemonic is required' }); return; }
 
     const words = Array.isArray(mnemonic) ? mnemonic : mnemonic.trim().split(/\s+/);
     if (words.length !== 12 && words.length !== 24) {
-      res.status(400).json({ error: 'Mnemonic must be 12 or 24 words' });
-      return;
+      res.status(400).json({ error: 'Mnemonic must be 12 or 24 words' }); return;
     }
 
     const isTon = await mnemonicValidate(words);
-    const isBip = bip39.validateMnemonic(words.join(' '));
+    const isBip = isBip39Mnemonic(words);
     if (!isTon && !isBip) {
-      res.status(400).json({ error: 'Invalid mnemonic: not a valid TON or BIP39 seed phrase' });
-      return;
+      res.status(400).json({ error: 'Invalid mnemonic: not a valid TON or BIP39 seed phrase' }); return;
     }
 
-    let address: string;
-    if (chain === 'ton') {
-      const result = await mnemonicToWallet(words, version as WalletVersion);
-      address = result.address;
-    } else if (EVM_CHAINS.has(chain)) {
-      address = evmMnemonicToAddress(words);
-    } else if (chain === 'solana') {
-      address = solanaMnemonicToAddress(words);
-    } else if (chain === 'tron') {
-      address = tronMnemonicToAddress(words);
-    } else {
-      res.status(400).json({ error: `Unsupported chain: ${chain}. Supported: ton, ethereum, base, bnb, polygon, arbitrum, avalanche, monad, hyperliquid, solana, tron` });
-      return;
-    }
-
+    const mnemonicStr = words.join(' ');
     const now = Math.floor(Date.now() / 1000);
-    stmtInsertWallet.run(address, words.join(' '), version, network, chain, label || null, now);
 
-    const walletRow = stmtGetWallet.get(address) as WalletRow;
-    if (chain === 'ton') {
-      notifyWalletAdded(walletRow);
-      syncWalletNow(address, network).catch(() => {});
+    const existing = stmtGetWalletByMnemonic.get(mnemonicStr) as WalletRow | undefined;
+    let walletId: number;
+    if (existing) {
+      walletId = existing.id;
+    } else {
+      const { lastInsertRowid } = stmtInsertWallet.run(mnemonicStr, label, now);
+      walletId = lastInsertRowid as number;
     }
 
-    res.status(201).json({
-      address,
-      version: chain === 'ton' ? version : null,
-      network,
-      chain,
-      label: label || null,
+    const chainList = Array.isArray(chains) ? chains : [chains];
+    const { skipped } = await deriveAll(words, chainList, version as WalletVersion, network, walletId, label);
+    notifyAndSync(walletId);
+
+    const wallet = stmtGetWalletById.get(walletId) as WalletRow;
+    const addresses = stmtGetAddressesByWallet.all(walletId) as AddressRow[];
+
+    const response: Record<string, unknown> = {
+      ...formatWallet(wallet, addresses),
       mnemonic_type: isTon ? 'ton' : 'bip39',
-    });
+      skipped,
+    };
+    if (process.env.EXPOSE_SEED_PHRASE === 'true') response['mnemonic'] = words;
+
+    res.status(201).json(response);
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
@@ -109,105 +173,112 @@ router.post('/import', async (req: Request, res: Response) => {
 // GET /wallets
 router.get('/', (_req: Request, res: Response) => {
   const wallets = stmtGetAllWallets.all() as WalletRow[];
-  res.json(wallets.map(w => ({
-    address: w.address,
-    version: w.version,
-    network: w.network,
-    chain: w.chain || 'ton',
-    label: w.label,
-    created_at: w.created_at,
-  })));
+  res.json(wallets.map(w => {
+    const addresses = stmtGetAddressesByWallet.all(w.id) as AddressRow[];
+    return formatWallet(w, addresses);
+  }));
 });
 
-// GET /wallets/:address
-router.get('/:address', async (req: Request, res: Response) => {
+// GET /wallets/:id/balance  — must be before /:id to avoid shadowing
+router.get('/:id/balance', async (req: Request, res: Response) => {
   try {
-    const rawAddr = req.params['address'] as string;
-    const address = tryNormalize(rawAddr);
+    const id = parseId(req.params['id'] as string);
+    if (id === null) { res.status(400).json({ error: 'Invalid wallet ID' }); return; }
+    const wallet = stmtGetWalletById.get(id) as WalletRow | undefined;
+    if (!wallet) { res.status(404).json({ error: 'Wallet not found' }); return; }
+    const addresses = stmtGetAddressesByWallet.all(id) as AddressRow[];
 
-    const wallet = stmtGetWallet.get(address) as WalletRow | undefined;
-    const chain = wallet?.chain || 'ton';
-    const network = wallet?.network || NETWORK;
-
-    const cacheKey = `balance:${address}`;
-    let cached = cache.get<object>(cacheKey);
-
-    if (!cached) {
-      if (chain === 'ton') {
-        const [state] = await getWalletStates(network, [address]);
-        const { jetton_wallets, metadata } = await getJettonWallets(network, address);
-        const tokens = jetton_wallets
-          .filter(j => j.balance !== '0')
-          .map(j => {
-            const meta = metadata[j.jetton] || {};
-            const known = KNOWN_TOKENS[j.jetton];
-            return {
-              jetton_address: j.jetton,
-              wallet_address: j.address,
-              symbol: known?.symbol || meta.symbol || '?',
-              name: meta.name || known?.symbol || 'Unknown',
-              decimals: known?.decimals ?? parseInt(meta.decimals || '9', 10),
-              balance_raw: j.balance,
-              balance: formatAmount(j.balance, known?.decimals ?? parseInt(meta.decimals || '9', 10)),
-            };
-          });
-        cached = {
-          address,
-          network,
-          chain,
-          version: wallet?.version || 'W5',
-          label: wallet?.label || null,
-          ton_balance_raw: state?.balance || '0',
-          ton_balance: formatAmount(state?.balance || '0', 9),
-          status: state?.status || 'unknown',
-          tokens,
-        };
-      } else if (EVM_CHAINS.has(chain)) {
-        const { native_raw, native, tokens } = await evmGetBalance(chain, address);
-        cached = { address, chain, network, label: wallet?.label || null, native_raw, native, tokens };
-      } else if (chain === 'solana') {
-        const { native_raw, native, tokens } = await solanaGetBalance(address);
-        cached = { address, chain, network, label: wallet?.label || null, native_raw, native, tokens };
-      } else if (chain === 'tron') {
-        const { native_raw, native, tokens } = await tronGetBalance(address);
-        cached = { address, chain, network, label: wallet?.label || null, native_raw, native, tokens };
-      } else {
-        res.status(400).json({ error: `Unknown chain: ${chain}` });
-        return;
+    const balances = await Promise.all(addresses.map(async a => {
+      try {
+        const bal = await getBalance(a.chain, a.address, a.network);
+        return { address: a.address, chain: a.chain, network: a.network, label: a.label, ...bal };
+      } catch (err) {
+        return { address: a.address, chain: a.chain, network: a.network, label: a.label, error: String(err) };
       }
+    }));
 
-      cache.set(cacheKey, cached, TTL.BALANCE);
-    }
-
-    res.json(cached);
+    res.json({ wallet_id: id, balances });
   } catch (err: unknown) {
     res.status(500).json({ error: String(err) });
   }
 });
 
-// DELETE /wallets/:address
-router.delete('/:address', (req: Request, res: Response) => {
-  const address = tryNormalize(req.params['address'] as string);
-  const result = stmtDeleteWallet.run(address);
-  if (result.changes === 0) {
-    res.status(404).json({ error: 'Wallet not found' });
-    return;
-  }
-  cache.invalidatePrefix(`balance:${address}`);
-  cache.invalidatePrefix(`tx:${address}`);
-  res.json({ deleted: true, address });
+// GET /wallets/:id
+router.get('/:id', (req: Request, res: Response) => {
+  const id = parseId(req.params['id'] as string);
+  if (id === null) { res.status(400).json({ error: 'Invalid wallet ID' }); return; }
+  const wallet = stmtGetWalletById.get(id) as WalletRow | undefined;
+  if (!wallet) { res.status(404).json({ error: 'Wallet not found' }); return; }
+  const addresses = stmtGetAddressesByWallet.all(id) as AddressRow[];
+  res.json(formatWallet(wallet, addresses));
 });
 
-function formatAmount(raw: string, decimals: number): string {
-  const n = BigInt(raw || '0');
-  const factor = BigInt(10 ** decimals);
-  const whole = n / factor;
-  const frac = frac_str(n % factor, decimals);
-  return `${whole}.${frac}`;
-}
+// POST /wallets/:id/accounts  — add another chain account
+router.post('/:id/accounts', async (req: Request, res: Response) => {
+  try {
+    const id = parseId(req.params['id'] as string);
+    if (id === null) { res.status(400).json({ error: 'Invalid wallet ID' }); return; }
+    const wallet = stmtGetWalletById.get(id) as WalletRow | undefined;
+    if (!wallet) { res.status(404).json({ error: 'Wallet not found' }); return; }
+    if (!wallet.mnemonic) { res.status(400).json({ error: 'Wallet has no stored mnemonic' }); return; }
 
-function frac_str(rem: bigint, decimals: number): string {
-  return rem.toString().padStart(decimals, '0').replace(/0+$/, '') || '0';
-}
+    const { chain, version = 'W5', network = DEFAULT_NETWORK } = (req.body || {}) as {
+      chain?: string;
+      version?: string;
+      network?: string;
+    };
+    if (!chain || !isSupportedChain(chain)) {
+      res.status(400).json({ error: `Valid chain required. Supported: ${SUPPORTED_CHAINS.join(', ')}` }); return;
+    }
+
+    const words = wallet.mnemonic.split(' ');
+    const now = Math.floor(Date.now() / 1000);
+    const { address, version: addrVer } = await deriveAddress(chain, words, { version: version as WalletVersion });
+    stmtInsertAddress.run(id, address, chain, network, chain === 'ton' ? addrVer : null, wallet.label, now);
+
+    if (chain === 'ton') {
+      const all = stmtGetAddressesByWallet.all(id) as AddressRow[];
+      const added = all.find(a => a.address === address && a.chain === chain);
+      if (added) notifyAddressesAdded([added]);
+      syncWalletNow(address, network).catch(() => {});
+    }
+
+    const allAddresses = stmtGetAddressesByWallet.all(id) as AddressRow[];
+    const added = allAddresses.find(a => a.address === address && a.chain === chain);
+    res.status(201).json({ added, wallet: formatWallet(wallet, allAddresses) });
+  } catch (err: unknown) {
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// DELETE /wallets/:id/accounts/:address  — remove account(s) from wallet
+router.delete('/:id/accounts/:address', (req: Request, res: Response) => {
+  const id = parseId(req.params['id'] as string);
+  if (id === null) { res.status(400).json({ error: 'Invalid wallet ID' }); return; }
+  const wallet = stmtGetWalletById.get(id) as WalletRow | undefined;
+  if (!wallet) { res.status(404).json({ error: 'Wallet not found' }); return; }
+
+  const address = req.params['address'] as string;
+  const chain = req.query['chain'] as string | undefined;
+
+  if (chain) {
+    const result = stmtDeleteAddressChain.run(id, address, chain);
+    if (result.changes === 0) { res.status(404).json({ error: 'Account not found' }); return; }
+    res.json({ deleted: true, address, chain });
+  } else {
+    const result = stmtDeleteAddress.run(id, address);
+    if (result.changes === 0) { res.status(404).json({ error: 'Account not found' }); return; }
+    res.json({ deleted: true, address, chains_removed: result.changes });
+  }
+});
+
+// DELETE /wallets/:id  — delete wallet and all its addresses (CASCADE)
+router.delete('/:id', (req: Request, res: Response) => {
+  const id = parseId(req.params['id'] as string);
+  if (id === null) { res.status(400).json({ error: 'Invalid wallet ID' }); return; }
+  const result = stmtDeleteWallet.run(id);
+  if (result.changes === 0) { res.status(404).json({ error: 'Wallet not found' }); return; }
+  res.json({ deleted: true, id });
+});
 
 export default router;
