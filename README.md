@@ -1,6 +1,6 @@
 # MyTonWallet API · v4.10.7
 
-Self-hosted REST API for multi-chain self-custody wallets.
+Self-hosted REST API for multi-chain self-custody wallets. **[Documentation](https://llogzz.github.io/MyTonWallet-api/)**
 
 **Chains:** TON · EVM (Ethereum, Base, BNB, Polygon, Arbitrum, Avalanche, Monad, Hyperliquid) · Solana · TRON
 
@@ -79,6 +79,3 @@ GET    /portfolio
 GET    /health
 ```
 
-## Docs
-
-Full interactive docs: `http://localhost:3000` (served from `docs/`).

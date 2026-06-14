@@ -377,7 +377,11 @@ http://myuser:mypassword@34.44.49.215:80</pre></div>
 curl -X DELETE http://localhost:3000/wallets/1/accounts/0xf39Fd6e51a...</pre></div>
         </div>
         <div class="tab-content" data-tab="response">
-          <div class="code-wrap"><pre>{ "deleted": true, "address": "0xf39Fd6e51a...", "chain": "ethereum" }</pre></div>
+          <div class="code-wrap"><pre>// With ?chain= (one entry removed)
+{ "deleted": true, "address": "0xf39Fd6e51a...", "chain": "ethereum" }
+
+// Without ?chain= (all chains sharing this address removed)
+{ "deleted": true, "address": "0xf39Fd6e51a...", "chains_removed": 8 }</pre></div>
         </div>
       </div>
     </div>
@@ -398,7 +402,7 @@ curl -X DELETE http://localhost:3000/wallets/1/accounts/0xf39Fd6e51a...</pre></d
           <div class="code-wrap"><pre>curl -X DELETE http://localhost:3000/wallets/1</pre></div>
         </div>
         <div class="tab-content" data-tab="response">
-          <div class="code-wrap"><pre>{ "deleted": true, "id": 1, "addresses_removed": 4 }</pre></div>
+          <div class="code-wrap"><pre>{ "deleted": true, "id": 1 }</pre></div>
         </div>
       </div>
     </div>
@@ -523,11 +527,30 @@ curl "http://localhost:3000/accounts/0xf39Fd6e51a...?chain=base"</pre></div>
       <div class="endpoint-body">
         <div class="tabs" data-group="toks">
           <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
         </div>
         <div class="tab-content active" data-tab="curl">
           <div class="code-wrap"><pre>curl http://localhost:3000/accounts/UQBvW8Y0.../tokens
 curl "http://localhost:3000/tokens/known"           # built-in TON token list
 curl "http://localhost:3000/tokens/prices?slugs=ton,usdt"</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>[
+  {
+    "token_address": "EQCxE6mUtQJKFnGfaROTKOt1lZbDiiX1kCixRv7Nw2Id_sDs",
+    "symbol": "USDT",
+    "decimals": 6,
+    "balance_raw": "10000000",
+    "balance": "10.0"
+  },
+  {
+    "token_address": "EQAvlWFDxGF2lXm67y4yzC17wYKD9A0guwPkMs1gOsM__NOT",
+    "symbol": "NOT",
+    "decimals": 9,
+    "balance_raw": "50000000000",
+    "balance": "50.0"
+  }
+]</pre></div>
         </div>
       </div>
     </div>
@@ -763,6 +786,7 @@ curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
           <div class="tab" data-tab="evm">EVM</div>
           <div class="tab" data-tab="solana">Solana</div>
           <div class="tab" data-tab="tron">TRON</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
         </div>
         <div class="tab-content active" data-tab="ton">
           <div class="code-wrap"><pre>curl -X POST http://localhost:3000/accounts/UQBvW8Y0.../send \
@@ -784,6 +808,9 @@ curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
           <div class="code-wrap"><pre>curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
   -H 'Content-Type: application/json' \
   -d '{"to": "TXyz...", "all": true}'</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{ "ok": true, "tx_hash": "abc123ef..." }</pre></div>
         </div>
       </div>
     </div>
@@ -890,9 +917,20 @@ curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
       <div class="endpoint-body">
         <div class="tabs" data-group="stakcom">
           <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
         </div>
         <div class="tab-content active" data-tab="curl">
           <div class="code-wrap"><pre>curl http://localhost:3000/staking/common</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "liquid": {
+    "pool": "EQD2_4d91M4TVbEBVyBF8J1UwpMJc361LKVCz6bBlffMW05o",
+    "apy": 4.12,
+    "tvl": "18500000000000000",
+    "minStake": "1000000000"
+  }
+}</pre></div>
         </div>
       </div>
     </div>
@@ -907,9 +945,20 @@ curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
       <div class="endpoint-body">
         <div class="tabs" data-group="stakget">
           <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
         </div>
         <div class="tab-content active" data-tab="curl">
           <div class="code-wrap"><pre>curl http://localhost:3000/accounts/UQBvW8Y0.../staking</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{
+  "profits": {
+    "profit24h": "12345678",
+    "profit7d": "86419747",
+    "profit30d": "370370370",
+    "tsTonBalance": "10000000000"
+  }
+}</pre></div>
         </div>
       </div>
     </div>
@@ -976,9 +1025,18 @@ curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
         <span class="chevron">▶</span>
       </div>
       <div class="endpoint-body">
-        <div class="tabs" data-group="swasset"><div class="tab active" data-tab="curl">Request</div></div>
+        <div class="tabs" data-group="swasset">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
         <div class="tab-content active" data-tab="curl">
           <div class="code-wrap"><pre>curl http://localhost:3000/swap/assets</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>[
+  { "slug": "ton", "symbol": "TON", "name": "Toncoin", "decimals": 9, "image": "https://..." },
+  { "slug": "EQCxE6mUtQ...", "symbol": "USDT", "name": "Tether USD", "decimals": 6, "image": "https://..." }
+]</pre></div>
         </div>
       </div>
     </div>
@@ -991,9 +1049,16 @@ curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
         <span class="chevron">▶</span>
       </div>
       <div class="endpoint-body">
-        <div class="tabs" data-group="swpairs"><div class="tab active" data-tab="curl">Request</div></div>
+        <div class="tabs" data-group="swpairs">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
         <div class="tab-content active" data-tab="curl">
           <div class="code-wrap"><pre>curl "http://localhost:3000/swap/pairs?asset=ton"</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>["EQCxE6mUtQ...", "EQAvlWFDxGF2...", "EQB-vc00g9Pe..."]
+// array of asset slugs/addresses that can be swapped with the requested asset</pre></div>
         </div>
       </div>
     </div>
@@ -1176,9 +1241,18 @@ curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
         <span class="chevron">▶</span>
       </div>
       <div class="endpoint-body">
-        <div class="tabs" data-group="webhooklist"><div class="tab active" data-tab="curl">Request</div></div>
+        <div class="tabs" data-group="webhooklist">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
         <div class="tab-content active" data-tab="curl">
           <div class="code-wrap"><pre>curl http://localhost:3000/accounts/UQBvW8Y0.../webhooks</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>[
+  { "id": 1, "url": "https://your-server.com/hook", "has_secret": true, "created_at": 1718001234 },
+  { "id": 2, "url": "https://other.com/hook", "has_secret": false, "created_at": 1718002000 }
+]</pre></div>
         </div>
       </div>
     </div>
@@ -1191,9 +1265,15 @@ curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
         <span class="chevron">▶</span>
       </div>
       <div class="endpoint-body">
-        <div class="tabs" data-group="webhookdel"><div class="tab active" data-tab="curl">Request</div></div>
+        <div class="tabs" data-group="webhookdel">
+          <div class="tab active" data-tab="curl">Request</div>
+          <div class="tab" data-tab="response">Response <span class="status-ok">200</span></div>
+        </div>
         <div class="tab-content active" data-tab="curl">
           <div class="code-wrap"><pre>curl -X DELETE http://localhost:3000/accounts/UQBvW8Y0.../webhooks/1</pre></div>
+        </div>
+        <div class="tab-content" data-tab="response">
+          <div class="code-wrap"><pre>{ "deleted": true, "id": 1 }</pre></div>
         </div>
       </div>
     </div>
@@ -1222,9 +1302,15 @@ curl -X POST "http://localhost:3000/accounts/TYsbW2.../send?chain=tron" \
         <div class="tab-content" data-tab="response">
           <div class="code-wrap"><pre>{
   "total_usd": "12345.67",
-  "wallets": [
-    { "address": "UQBvW8Y0...", "chain": "ton", "label": "Main", "total_usd": "1054.20" },
-    { "address": "0xf39Fd6...", "chain": "ethereum", "label": null, "total_usd": "3200.00" }
+  "addresses": [
+    {
+      "address": "UQBvW8Y0...", "chain": "ton", "network": "mainnet", "label": "Main",
+      "native_usd": "950.40", "tokens_usd": "103.80", "total_usd": "1054.20"
+    },
+    {
+      "address": "0xf39Fd6...", "chain": "ethereum", "network": "mainnet", "label": null,
+      "native_usd": "3200.00", "tokens_usd": "0.00", "total_usd": "3200.00"
+    }
   ],
   "by_chain": { "ton": "1054.20", "ethereum": "3200.00", "tron": "1099.90" }
 }</pre></div>
